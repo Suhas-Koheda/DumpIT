@@ -5,7 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 
 import { verifyPin } from '@/lib/pin';
-import { lightScheme, darkScheme } from '@/lib/themes';
+import { MD3DarkTheme, MD3LightTheme } from 'react-native-paper';
 
 /**
  * Lock screen — shown on cold start when the vault PIN is set.
@@ -13,7 +13,7 @@ import { lightScheme, darkScheme } from '@/lib/themes';
  */
 export default function UnlockScreen({ onUnlocked }: { onUnlocked: () => void }) {
   const systemScheme = useColorScheme();
-  const c = systemScheme === 'dark' ? darkScheme : lightScheme;
+  const c = (systemScheme === 'dark' ? MD3DarkTheme : MD3LightTheme).colors;
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
 
