@@ -1,7 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import 'react-native-get-random-values';
 
-import { StateGraph, START, END, Annotation } from '@langchain/langgraph';
+import { StateGraph, START, END, Annotation } from '@langchain/langgraph/web';
 
 import { extractAllUrls } from './link-reader';
 import { modelReady, summarizeEvidence } from './llm';
