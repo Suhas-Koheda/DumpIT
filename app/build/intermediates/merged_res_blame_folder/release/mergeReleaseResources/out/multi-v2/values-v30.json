@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.dumpit.app-mergeReleaseResources-40:/values-v30/values-v30.xml",
+            "map": [
+                {
+                    "source": "/home/ssp/.gradle/caches/9.5.1/transforms/3d29be2316600c8d65dc4a974d6b7a06/transformed/material3-release/res/values-v30/values-v30.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "72",
+                        "endOffsets": "123"
+                    }
+                }
+            ]
+        }
+    ]
+}

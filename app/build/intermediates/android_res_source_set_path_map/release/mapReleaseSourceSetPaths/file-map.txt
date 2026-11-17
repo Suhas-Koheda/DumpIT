@@ -1,0 +1,8 @@
+com.dumpit.app-pngs-0 /home/ssp/projects/react/DumpIT/app/build/generated/res/pngs/release
+com.dumpit.app-updated_navigation_xml-1 /home/ssp/projects/react/DumpIT/app/build/generated/updated_navigation_xml/release
+com.dumpit.app-packageReleaseResources-2 /home/ssp/projects/react/DumpIT/app/build/intermediates/incremental/release/packageReleaseResources/merged.dir
+com.dumpit.app-packageReleaseResources-3 /home/ssp/projects/react/DumpIT/app/build/intermediates/incremental/release/packageReleaseResources/stripped.dir
+com.dumpit.app-release-4 /home/ssp/projects/react/DumpIT/app/build/intermediates/merged_res/release/mergeReleaseResources
+com.dumpit.app-main-5 /home/ssp/projects/react/DumpIT/app/src/main/res
+com.dumpit.app-release-6 /home/ssp/projects/react/DumpIT/app/src/release/res
+gradleHome-0 /home/ssp/.gradle
