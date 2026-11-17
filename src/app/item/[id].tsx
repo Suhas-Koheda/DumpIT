@@ -1,4 +1,5 @@
 import {
+  ActivityIndicator,
   Alert,
   Linking,
   Pressable,
@@ -16,11 +17,12 @@ import Badge from '@/components/Badge';
 import { useDumpStore } from '@/lib/dump-store';
 import { usePalette } from '@/lib/theme';
 import { fullDate } from '@/lib/time';
+import type { AgentStep } from '@/lib/types';
 
 export default function DumpDetailScreen() {
   const palette = usePalette();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { items, removeItem } = useDumpStore();
+  const { items, removeItem, rerunAgent } = useDumpStore();
   const item = items.find((entry) => entry.id === id);
 
   if (!item) {
@@ -69,6 +71,9 @@ export default function DumpDetailScreen() {
           <Text style={[styles.date, { color: palette.faint }]}>{fullDate(item.createdAt)}</Text>
         </View>
 
+        {/* ── THE AGENT — live research steps ─────────────────────── */}
+        <AgentPanel item={item} onRerun={() => rerunAgent(item.id)} />
+
         {item.kind === 'image' && item.imageUri ? (
           <Image
             source={{ uri: item.imageUri }}
@@ -114,6 +119,94 @@ export default function DumpDetailScreen() {
         </Pressable>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function StepIcon({ status, kind, palette }: { status: AgentStep['status']; kind: AgentStep['kind']; palette: ReturnType<typeof usePalette> }) {
+  if (status === 'pending') {
+    return <Ionicons name="ellipse-outline" size={16} color={palette.faint} />;
+  }
+  if (status === 'running') {
+    return <ActivityIndicator size={14} color={palette.accent} />;
+  }
+  if (status === 'failed') {
+    return <Ionicons name="close-circle" size={16} color={palette.danger} />;
+  }
+  if (status === 'skipped') {
+    return <Ionicons name="remove-circle-outline" size={16} color={palette.faint} />;
+  }
+  if (kind === 'done') {
+    return <Ionicons name="sparkles" size={16} color={palette.accent} />;
+  }
+  return <Ionicons name="checkmark-circle" size={16} color={palette.accent} />;
+}
+
+function AgentPanel({
+  item,
+  onRerun,
+}: {
+  item: import('@/lib/types').DumpItem;
+  onRerun: () => void;
+}) {
+  const palette = usePalette();
+  const active = item.agent === 'running' || item.agent === 'pending';
+  const failed = item.agent === 'failed';
+
+  return (
+    <View style={[styles.agentCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+      <View style={styles.agentHeader}>
+        <View style={styles.agentHeaderLeft}>
+          <Ionicons name="flash" size={15} color={palette.accent} />
+          <Text style={[styles.agentTitle, { color: palette.text }]}>THE AGENT</Text>
+        </View>
+        <Pressable
+          onPress={onRerun}
+          hitSlop={8}
+          style={[styles.rerunBtn, { borderColor: palette.border }]}
+        >
+          <Ionicons name="refresh" size={14} color={palette.muted} />
+          <Text style={[styles.rerunText, { color: palette.muted }]}>RE-RUN</Text>
+        </Pressable>
+      </View>
+
+      {/* Step list */}
+      {item.steps.length > 0 ? (
+        item.steps.map((step) => (
+          <View key={step.id} style={styles.stepRow}>
+            <StepIcon status={step.status} kind={step.kind} palette={palette} />
+            <View style={styles.stepTextWrap}>
+              <Text style={[styles.stepLabel, { color: palette.text }]} numberOfLines={1}>
+                {step.label}
+              </Text>
+              {step.detail ? (
+                <Text style={[styles.stepDetail, { color: palette.muted }]} numberOfLines={2}>
+                  {step.detail}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        ))
+      ) : active ? (
+        <View style={styles.stepRow}>
+          <ActivityIndicator size={14} color={palette.accent} />
+          <Text style={[styles.stepLabel, { color: palette.muted }]}>Starting…</Text>
+        </View>
+      ) : null}
+
+      {/* Summary */}
+      {item.summary ? (
+        <View style={[styles.summaryWrap, { borderTopColor: palette.border }]}>
+          <Text style={[styles.summaryLabel, { color: palette.accent }]}>SUMMARY</Text>
+          <Text style={[styles.summaryText, { color: palette.text }]} selectable>
+            {item.summary}
+          </Text>
+        </View>
+      ) : failed ? (
+        <Text style={[styles.stepLabel, { color: palette.danger }]}>
+          The agent hit an error. Tap RE-RUN.
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -202,5 +295,71 @@ const styles = StyleSheet.create({
   missingBtnText: {
     fontSize: 14,
     fontWeight: '700',
+  },
+  agentCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+  },
+  agentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  agentHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  agentTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+  rerunBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  rerunText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  stepTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  stepLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  stepDetail: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  summaryWrap: {
+    borderTopWidth: 1,
+    paddingTop: 10,
+    gap: 4,
+  },
+  summaryLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+  },
+  summaryText: {
+    fontSize: 14,
+    lineHeight: 21,
   },
 });

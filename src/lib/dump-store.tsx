@@ -5,12 +5,14 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
 import { detectPlatform, extractUrl, hostOf, makeId, readableBlurb } from './classify';
 import { deleteStoredImage, storeImage } from './images';
-import type { DumpItem } from './types';
+import { runAgent } from './agent';
+import type { AgentStep, DumpItem } from './types';
 
 const STORAGE_KEY = 'dumpit.items.v1';
 
@@ -26,6 +28,7 @@ interface DumpStore {
   hydrated: boolean;
   addFromShare: (payload: SharePayload) => Promise<DumpItem[]>;
   removeItem: (id: string) => void;
+  rerunAgent: (id: string) => void;
 }
 
 const DumpContext = createContext<DumpStore | null>(null);
@@ -36,9 +39,20 @@ export function useDumpStore(): DumpStore {
   return ctx;
 }
 
+function emptyAgentFields() {
+  return {
+    agent: 'pending' as const,
+    steps: [] as AgentStep[],
+    summary: null as string | null,
+    sources: [] as string[],
+    extracted: null as string | null,
+  };
+}
+
 export function DumpProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<DumpItem[]>([]);
   const [hydrated, setHydrated] = useState(false);
+  const runningRef = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -46,7 +60,7 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
       .then((raw) => {
         if (!mounted || !raw) return;
         try {
-          const parsed = JSON.parse(raw) as DumpItem[];
+          const parsed = JSON.parse(raw) as Partial<DumpItem>[];
           if (Array.isArray(parsed)) {
             setItems(
               parsed.map((item) => ({
@@ -60,6 +74,13 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
                 imageUri: item.imageUri ?? null,
                 imageName: item.imageName ?? null,
                 createdAt: item.createdAt ?? Date.now(),
+                agent:
+                  item.agent ??
+                  (item.kind === 'image' ? 'skipped' : 'pending'),
+                steps: item.steps ?? [],
+                summary: item.summary ?? null,
+                sources: item.sources ?? [],
+                extracted: item.extracted ?? null,
               }))
             );
           }
@@ -96,6 +117,8 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
             urlHost: null,
             imageUri: stored.uri,
             imageName: stored.name,
+            ...emptyAgentFields(),
+            agent: 'skipped',
           });
         } catch {
           created.push({
@@ -107,6 +130,8 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
             urlHost: null,
             imageUri: null,
             imageName: null,
+            ...emptyAgentFields(),
+            agent: 'skipped',
           });
         }
       } else {
@@ -119,6 +144,8 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
           urlHost: null,
           imageUri: null,
           imageName: null,
+          ...emptyAgentFields(),
+          agent: 'skipped',
         });
       }
     }
@@ -135,6 +162,7 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
         urlHost: hostOf(sharedUrl),
         imageUri: null,
         imageName: null,
+        ...emptyAgentFields(),
       });
     } else if (payload.text?.trim()) {
       const text = payload.text.trim();
@@ -147,6 +175,7 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
         urlHost: null,
         imageUri: null,
         imageName: null,
+        ...emptyAgentFields(),
       });
     }
 
@@ -161,6 +190,56 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
     return withIds;
   }, []);
 
+  // Agentic research loop — one item at a time, works offline end-to-end.
+  useEffect(() => {
+    if (!hydrated || runningRef.current) return;
+    const next = items.find((item) => item.agent === 'pending');
+    if (!next) return;
+
+    runningRef.current = true;
+    const id = next.id;
+
+    const run = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      setItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, agent: 'running' } : item))
+      );
+      try {
+        const result = await runAgent(
+          { title: next.title, text: next.text, url: next.url },
+          (steps) => {
+            setItems((prev) =>
+              prev.map((item) => (item.id === id ? { ...item, steps } : item))
+            );
+          }
+        );
+        setItems((prev) =>
+          prev.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  agent: 'done',
+                  steps: result.steps,
+                  summary: result.summary,
+                  sources: result.sources,
+                  extracted: result.extracted,
+                }
+              : item
+          )
+        );
+      } catch {
+        setItems((prev) =>
+          prev.map((item) =>
+            item.id === id ? { ...item, agent: 'failed' } : item
+          )
+        );
+      } finally {
+        runningRef.current = false;
+      }
+    };
+    run();
+  }, [items, hydrated]);
+
   const removeItem = useCallback((id: string) => {
     setItems((prev) => {
       const target = prev.find((item) => item.id === id);
@@ -169,9 +248,26 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const rerunAgent = useCallback((id: string) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              agent: 'pending',
+              steps: [],
+              summary: null,
+              sources: [],
+              extracted: null,
+            }
+          : item
+      )
+    );
+  }, []);
+
   const value = useMemo<DumpStore>(
-    () => ({ items, hydrated, addFromShare, removeItem }),
-    [items, hydrated, addFromShare, removeItem]
+    () => ({ items, hydrated, addFromShare, removeItem, rerunAgent }),
+    [items, hydrated, addFromShare, removeItem, rerunAgent]
   );
 
   return <DumpContext.Provider value={value}>{children}</DumpContext.Provider>;
