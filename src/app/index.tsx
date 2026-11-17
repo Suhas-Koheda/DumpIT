@@ -4,6 +4,7 @@ import {
   FlatList,
   Pressable,
   ScrollView,
+  Text,
   TextInput,
   View,
 } from 'react-native';
@@ -42,6 +43,57 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'image', label: 'Shots' },
   { key: 'private', label: 'Private' },
 ];
+
+
+function FilterChip({
+  label,
+  selected,
+  onPress,
+  containerStyle,
+  selectedContainerColor,
+  labelStyle,
+}: {
+  label: string;
+  selected?: boolean;
+  onPress?: () => void;
+  containerStyle?: object;
+  selectedContainerColor?: string;
+  labelStyle?: object;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        {
+          paddingHorizontal: 14,
+          paddingVertical: 9,
+          borderRadius: 999,
+          backgroundColor: selected
+            ? (selectedContainerColor ?? theme.colors.primaryContainer)
+            : theme.colors.surfaceVariant,
+        },
+        containerStyle,
+      ]}
+    >
+      <Text
+        numberOfLines={1}
+        style={[
+          {
+            color: selected
+              ? theme.colors.onPrimaryContainer
+              : theme.colors.onSurfaceVariant,
+            fontSize: 13,
+            fontWeight: selected ? '700' : '500',
+          },
+          labelStyle,
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
 
 export default function InboxScreen() {
   const theme = useTheme();
@@ -276,21 +328,7 @@ export default function InboxScreen() {
         contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 10, gap: 8 }}
       >
         {FILTERS.map(({ key, label }) => (
-          <Chip
-            key={key}
-            compact
-            selected={filter === key}
-            onPress={() => setFilter(key)}
-            showSelectedOverlay={false}
-            selectedColor={theme.colors.onPrimaryContainer}
-            style={{
-              backgroundColor:
-                filter === key ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
-            }}
-            textStyle={{ fontSize: 13, fontWeight: filter === key ? '700' : '400' }}
-          >
-            {label}
-          </Chip>
+          <FilterChip key={key} label={label} selected={filter === key} onPress={() => setFilter(key)} />
         ))}
       </ScrollView>
 
@@ -341,46 +379,21 @@ export default function InboxScreen() {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 6, gap: 8, alignItems: 'center' }}
       >
-        <Chip
-          compact
+        <FilterChip
+          label="All blocks"
           selected={folderId === null}
+          selectedContainerColor={theme.colors.tertiaryContainer}
           onPress={() => setFolderId(null)}
-          showSelectedOverlay={false}
-          style={{
-            backgroundColor:
-              folderId === null ? theme.colors.tertiaryContainer : theme.colors.surfaceVariant,
-          }}
-          textStyle={{ fontSize: 12 }}
-        >
-          All blocks
-        </Chip>
+        />
         {folders.map((folder) => (
-          <Chip
+          <FilterChip
             key={folder.id}
-            compact
             selected={folderId === folder.id}
+            selectedContainerColor={theme.colors.tertiaryContainer}
             onPress={() => setFolderId(folderId === folder.id ? null : folder.id)}
-            showSelectedOverlay={false}
-            avatar={
-              <View
-                style={{
-                  width: 16,
-                  height: 16,
-                  borderRadius: 8,
-                  backgroundColor: folder.color,
-                }}
-              />
-            }
-            style={{
-              backgroundColor:
-                folderId === folder.id
-                  ? theme.colors.tertiaryContainer
-                  : theme.colors.surfaceVariant,
-            }}
-            textStyle={{ fontSize: 12 }}
-          >
-            {folder.name}
-          </Chip>
+            label={folder.name}
+            containerStyle={{ borderWidth: folderId === folder.id ? 2 : 0, borderColor: theme.colors.primary }}
+          />
         ))}
         {folderInputOpen ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
