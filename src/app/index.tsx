@@ -49,6 +49,7 @@ export default function InboxScreen() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [semantic, setSemantic] = useState(false);
   const [semOrder, setSemOrder] = useState<Map<string, number> | null>(null);
+  const [category, setCategory] = useState<string | null>(null);
 
   const semanticWanted = semantic && query.trim().length >= 2 && aiState === 'ready';
   useEffect(() => {
@@ -75,6 +76,7 @@ export default function InboxScreen() {
       if (filter === 'link' && item.kind !== 'link') return false;
       if (filter === 'text' && item.kind !== 'text') return false;
       if (filter === 'image' && item.kind !== 'image') return false;
+      if (category && (item.ai?.status !== 'done' || item.ai.category !== category)) return false;
       if (semanticActive) return true;
       if (!q) return true;
       const haystack = [
@@ -90,8 +92,12 @@ export default function InboxScreen() {
         .toLowerCase();
       return haystack.includes(q);
     });
+    const withPinnedFirst = [...filtered].sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return 0;
+    });
     if (semanticActive && semOrder) {
-      return [...filtered].sort((a, b) => {
+      return withPinnedFirst.sort((a, b) => {
         const ia = semOrder.get(a.id);
         const ib = semOrder.get(b.id);
         if (ia === undefined && ib === undefined) return b.createdAt - a.createdAt;
@@ -100,10 +106,28 @@ export default function InboxScreen() {
         return ia - ib;
       });
     }
-    return filtered;
-  }, [items, query, filter, semanticActive, semOrder]);
+    if (!semanticActive) {
+      return [...withPinnedFirst].sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        return b.createdAt - a.createdAt;
+      });
+    }
+    return withPinnedFirst;
+  }, [items, query, filter, semanticActive, semOrder, category]);
 
   const totalCount = items.length;
+  const presentCategories = useMemo(
+    () =>
+      Array.from(
+        items.reduce((map, item) => {
+          if (item.ai?.status === 'done') {
+            map.set(item.ai.category, (map.get(item.ai.category) ?? 0) + 1);
+          }
+          return map;
+        }, new Map<string, number>()).entries()
+      ).sort((a, b) => b[1] - a[1]),
+    [items]
+  );
 
   const confirmDelete = (item: DumpItem) => {
     Alert.alert('Burn this dump?', 'This removes it from your phone.', [
@@ -214,6 +238,38 @@ export default function InboxScreen() {
         })}
       </ScrollView>
 
+      {/* Category filter — derived from what the Oracle classified */}
+      {presentCategories.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryFilters}
+        >
+          <Pressable
+            onPress={() => setCategory(null)}
+            style={[styles.catChip, category === null && styles.catChipActive]}
+          >
+            <Text style={[styles.catChipText, category === null && styles.catChipTextActive]}>
+              ALL
+            </Text>
+          </Pressable>
+          {presentCategories.map(([name, count]) => {
+            const active = category === name;
+            return (
+              <Pressable
+                key={name}
+                onPress={() => setCategory(active ? null : name)}
+                style={[styles.catChip, active && styles.catChipActive]}
+              >
+                <Text style={[styles.catChipText, active && styles.catChipTextActive]}>
+                  {name.toUpperCase()} · {count}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+
       {/* List */}
       <FlatList
         data={visible}
@@ -231,7 +287,7 @@ export default function InboxScreen() {
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>
-              {query || filter !== 'all' ? 'NOTHING FOUND' : 'NOTHING IN THE VAULT'}
+              {query || filter !== 'all' || category ? 'NOTHING FOUND' : 'NOTHING IN THE VAULT'}
             </Text>
             <Text style={styles.emptyHint}>
               {query || filter !== 'all'
@@ -317,7 +373,17 @@ function DumpCard({
       ) : null}
 
       <View style={styles.cardBottomRow}>
+        {item.pinned ? (
+          <View style={styles.pinMini}>
+            <Text style={styles.pinMiniText}>PIN</Text>
+          </View>
+        ) : null}
         {item.urlHost ? <Text style={styles.host}>{item.urlHost}</Text> : null}
+        {item.ai?.status === 'done' && item.ai.category === 'todo' && item.ai.todos.length > 0 ? (
+          <Text style={styles.todoCount}>
+            ✓ {item.ai.todosDone.length}/{item.ai.todos.length}
+          </Text>
+        ) : null}
         {item.note ? (
           <View style={styles.noteFlag}>
             <Text style={styles.noteFlagText}>NOTE</Text>
@@ -447,6 +513,48 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
     gap: 8,
+  },
+  categoryFilters: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  catChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: borders.thin,
+    borderColor: colors.faint,
+    backgroundColor: colors.bg,
+  },
+  catChipActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.border,
+    borderWidth: borders.base,
+  },
+  catChipText: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: colors.muted,
+  },
+  catChipTextActive: {
+    color: colors.ink,
+  },
+  pinMini: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  pinMiniText: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    letterSpacing: 1.5,
+    color: colors.ink,
+  },
+  todoCount: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: colors.success,
   },
   chip: {
     paddingHorizontal: 12,

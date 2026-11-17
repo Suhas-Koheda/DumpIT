@@ -7,9 +7,34 @@ export type DumpSource = 'share' | 'manual' | 'sample';
 
 export type AiStatus = 'pending' | 'analyzing' | 'done' | 'error' | 'disabled';
 
+export const AI_CATEGORIES = [
+  'todo',
+  'idea',
+  'note',
+  'reference',
+  'reading',
+  'work',
+  'finance',
+  'travel',
+  'recipe',
+  'health',
+  'other',
+] as const;
+
+export type AiCategory = (typeof AI_CATEGORIES)[number];
+
 export interface ExtractedEntity {
   type: string;
   value: string;
+}
+
+export interface TodoReminder {
+  /** Index into ai.todos */
+  todoIndex: number;
+  /** Absolute time to fire, epoch ms */
+  at: number;
+  /** expo-notifications identifier */
+  id: string;
 }
 
 export interface DumpAi {
@@ -28,6 +53,12 @@ export interface DumpAi {
   /** Why the analysis failed/was disabled, when applicable. */
   error: string | null;
   analyzedAt: number | null;
+  /** Auto-classified category from the agent. */
+  category: AiCategory;
+  /** Indices of todos the user has completed. */
+  todosDone: number[];
+  /** Notification reminders attached to todos. */
+  reminders: TodoReminder[];
 }
 
 export interface DumpItem {
@@ -50,6 +81,8 @@ export interface DumpItem {
   tags: string[];
   source: DumpSource;
   createdAt: number;
+  /** Pinned items float to the top of the vault. */
+  pinned: boolean;
   /** On-device AI analysis. `null` = not requested yet / legacy item. */
   ai: DumpAi | null;
 }

@@ -13,9 +13,12 @@ import { SpaceMono_400Regular } from '@expo-google-fonts/space-mono';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ShareIntentProvider } from 'expo-share-intent';
 
+import { useEffect } from 'react';
+
 import ShareIntentWatcher from '@/components/ShareIntentWatcher';
 import Loader from '@/components/Loader';
 import { DumpProvider } from '@/lib/dump-store';
+import { setupNotificationChannel } from '@/lib/notifications';
 import { colors, fonts } from '@/lib/theme';
 
 // Expo Go cannot load the native share-intent module; running there with the
@@ -32,6 +35,10 @@ export default function RootLayout() {
     WorkSans_700Bold,
     SpaceMono_400Regular,
   });
+
+  useEffect(() => {
+    setupNotificationChannel();
+  }, []);
 
   if (!fontsLoaded) {
     return <Loader message="OPENING THE VAULT" />;

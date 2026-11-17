@@ -1,5 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
-import Svg, { Line, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { G, Line, Rect, Text as SvgText } from 'react-native-svg';
 
 import { colors, fonts } from '@/lib/theme';
 import type { ExtractedEntity } from '@/lib/types';
@@ -69,7 +69,7 @@ export default function KnowledgeMap({
           const boxH = 40;
           const valueLines = wrap(node.value, 13, 2);
           return (
-            <g key={`n${i}`}>
+            <G key={`n${i}`}>
               <Rect
                 x={x - boxW / 2}
                 y={y - boxH / 2}
@@ -104,7 +104,7 @@ export default function KnowledgeMap({
                   {line}
                 </SvgText>
               ))}
-            </g>
+            </G>
           );
         })}
       </Svg>

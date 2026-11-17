@@ -2,7 +2,8 @@ import Constants from 'expo-constants';
 
 import { embedModelFile, embedModelReady, llmModelFile, llmModelReady } from './ai-models';
 import { extractAllUrls, readLinkContent } from './link-reader';
-import type { ExtractedEntity } from './types';
+import { AI_CATEGORIES } from './types';
+import type { ExtractedEntity, AiCategory } from './types';
 
 /**
  * On-device inference. llama.rn is a native module that only exists in a
@@ -73,6 +74,12 @@ const ANALYSIS_SCHEMA = {
       type: 'string',
       description: 'One or two plain sentences describing what this post/note/link is about.',
     },
+    category: {
+      type: 'string',
+      enum: [...AI_CATEGORIES],
+      description:
+        'todo = contains actionable tasks/lists; idea = a project/product idea; note = general capture; reference = link worth saving for later reference; reading = long-form to read; work; finance; travel; recipe; health; other. Pick exactly one.',
+    },
     entities: {
       type: 'array',
       description: 'Named things explicitly present in the text: people, organizations, products, dates, amounts, locations.',
@@ -97,7 +104,7 @@ const ANALYSIS_SCHEMA = {
       items: { type: 'string' },
     },
   },
-  required: ['summary', 'entities', 'todos', 'links'],
+  required: ['summary', 'category', 'entities', 'todos', 'links'],
   additionalProperties: false,
 } as const;
 
@@ -105,6 +112,7 @@ const SYSTEM_PROMPT = [
   'You analyze small bits of saved content (tweets, posts, articles, screenshots of text, personal notes).',
   'Reply with strict JSON only: summary, entities, todos, links.',
   'summary: 1-2 short sentences, plain words, no hype, no preamble. It MUST describe what the content says, never what the URL is.',
+  'category: classify into exactly one of: todo (actionable tasks), idea (project/product idea), note (general capture), reference (save for later), reading (long-form), work, finance, travel, recipe, health, other.',
   'If PAGE CONTENT is present, base the analysis on it. If only a URL is present, describe the URL\'s likely content from the URL itself and the provided text.',
   'entities: only things actually in the text; 0-8 entries.',
   'todos: only real action items; else [].',
@@ -114,6 +122,7 @@ const SYSTEM_PROMPT = [
 
 export interface EngineAnalysis {
   summary: string;
+  category: AiCategory;
   entities: ExtractedEntity[];
   todos: string[];
   links: string[];
@@ -124,8 +133,14 @@ function parseAnalysis(raw: string): EngineAnalysis {
   const end = raw.lastIndexOf('}');
   const candidate = start !== -1 && end > start ? raw.slice(start, end + 1) : raw;
   const parsed = JSON.parse(candidate) as Partial<EngineAnalysis>;
+  const category =
+    typeof parsed.category === 'string' &&
+    (AI_CATEGORIES as readonly string[]).includes(parsed.category)
+      ? (parsed.category as AiCategory)
+      : 'note';
   return {
     summary: typeof parsed.summary === 'string' ? parsed.summary.trim() : '',
+    category,
     entities: Array.isArray(parsed.entities)
       ? parsed.entities
           .filter(

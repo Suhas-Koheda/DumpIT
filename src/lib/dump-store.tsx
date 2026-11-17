@@ -11,6 +11,11 @@ import React, {
 
 import { detectPlatform, extractUrl, hostOf, makeId, readableBlurb } from './classify';
 import { deleteStoredImage, storeImage } from './images';
+import {
+  cancelReminder,
+  ensureNotificationPermission,
+  scheduleReminderAt,
+} from './notifications';
 import { agentAnalyze, embedDocument, embedQuery, engineAvailable } from './ai-engine';
 import {
   downloadModels,
@@ -55,6 +60,14 @@ interface DumpStore {
   updateItem: (id: string, patch: Partial<Pick<DumpItem, 'note' | 'tags' | 'title'>>) => void;
   /** Re-queue an item for on-device analysis. */
   retryAiAnalysis: (id: string) => void;
+  /** Flip one todo's done state. */
+  toggleTodo: (id: string, index: number) => void;
+  /** Pin / unpin. Pinned items float to the top. */
+  togglePin: (id: string) => void;
+  /** Schedule (or reschedule) a reminder for one todo. Returns success. */
+  setTodoReminder: (id: string, todoIndex: number, at: number) => Promise<boolean>;
+  /** Cancel the reminder for one todo. */
+  clearTodoReminder: (id: string, todoIndex: number) => void;
   removeItem: (id: string) => void;
   dismissImportBanner: () => void;
   /** Semantic search via on-device embeddings. Null when unavailable. */
@@ -81,6 +94,9 @@ function emptyAi(status: DumpAi['status']): DumpAi {
     sources: [],
     error: null,
     analyzedAt: null,
+    category: 'note',
+    todosDone: [],
+    reminders: [],
   };
 }
 
@@ -98,6 +114,7 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
   const [aiProgress, setAiProgress] = useState<AiProgress | null>(null);
   const analysisRunningRef = useRef(false);
   const downloadingRef = useRef(false);
+  const itemsRef = useRef<DumpItem[]>([]);
 
   // Load once on startup. Legacy items gain an AI slot (queued for analysis).
   useEffect(() => {
@@ -112,6 +129,7 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
               setItems(
                 parsed.map((item) => ({
                   ...item,
+                  pinned: item.pinned ?? false,
                   ai: { ...emptyAi('pending'), ...(item.ai ?? {}) },
                 }))
               );
@@ -126,6 +144,11 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
     };
   }, []);
+
+  // Keep a live ref for callbacks that shouldn't re-subscribe.
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   // Persist on every change (after hydration).
   useEffect(() => {
@@ -205,14 +228,17 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
                   ai: {
                     status: 'done',
                     summary: analysis.summary,
+                    category: analysis.category,
                     entities: analysis.entities,
                     todos: analysis.todos,
+                    todosDone: [],
                     links: analysis.links,
                     ocrText,
                     pageText,
                     sources,
                     error: null,
                     analyzedAt: Date.now(),
+                    reminders: [],
                   },
                 }
               : item
@@ -265,6 +291,7 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
             note: '',
             tags: [],
             source: payload.source,
+            pinned: false,
             ai: emptyAi('pending'),
           });
         } catch {
@@ -280,6 +307,7 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
             note: '',
             tags: [],
             source: payload.source,
+            pinned: false,
             ai: emptyAi('pending'),
           });
         }
@@ -296,6 +324,7 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
           note: '',
           tags: [],
           source: payload.source,
+          pinned: false,
           ai: emptyAi('pending'),
         });
       }
@@ -317,6 +346,7 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
         note: '',
         tags: [],
         source: payload.source,
+        pinned: false,
         ai: emptyAi('pending'),
       });
     } else if (payload.text?.trim()) {
@@ -333,6 +363,7 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
         note: '',
         tags: [],
         source: payload.source,
+        pinned: false,
         ai: emptyAi('pending'),
       });
     }
@@ -371,6 +402,7 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
   const removeItem = useCallback((id: string) => {
     setItems((prev) => {
       const target = prev.find((item) => item.id === id);
+      target?.ai?.reminders.forEach((reminder) => cancelReminder(reminder.id));
       if (target?.imageUri) deleteStoredImage(target.imageUri);
       return prev.filter((item) => item.id !== id);
     });
@@ -380,6 +412,69 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
   const retryAiAnalysis = useCallback((id: string) => {
     setItems((prev) =>
       prev.map((item) => (item.id === id ? { ...item, ai: emptyAi('pending') } : item))
+    );
+  }, []);
+
+  const toggleTodo = useCallback((id: string, index: number) => {
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id || !item.ai) return item;
+        const done = new Set(item.ai.todosDone);
+        if (done.has(index)) done.delete(index);
+        else done.add(index);
+        return { ...item, ai: { ...item.ai, todosDone: [...done].sort((a, b) => a - b) } };
+      })
+    );
+  }, []);
+
+  const togglePin = useCallback((id: string) => {
+    setItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, pinned: !item.pinned } : item))
+    );
+  }, []);
+
+  const setTodoReminder = useCallback<DumpStore['setTodoReminder']>(
+    async (id, todoIndex, at) => {
+      const granted = await ensureNotificationPermission();
+      if (!granted) return false;
+      const target = itemsRef.current.find((item) => item.id === id);
+      const todoText = target?.ai?.todos[todoIndex] ?? 'Todo';
+      // Replace any existing reminder for that todo.
+      const existing = target?.ai?.reminders.find((r) => r.todoIndex === todoIndex);
+      if (existing) await cancelReminder(existing.id);
+      const notificationId = await scheduleReminderAt(
+        target?.title ?? 'DumpIT',
+        todoText,
+        at
+      );
+      if (!notificationId) return false;
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.id !== id || !item.ai) return item;
+          const reminders = item.ai.reminders.filter((r) => r.todoIndex !== todoIndex);
+          reminders.push({ todoIndex, at, id: notificationId });
+          return { ...item, ai: { ...item.ai, reminders } };
+        })
+      );
+      return true;
+    },
+    []
+  );
+
+  const clearTodoReminder = useCallback<DumpStore['clearTodoReminder']>((id, todoIndex) => {
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id || !item.ai) return item;
+        const target = item.ai.reminders.find((r) => r.todoIndex === todoIndex);
+        if (target) cancelReminder(target.id);
+        return {
+          ...item,
+          ai: {
+            ...item.ai,
+            reminders: item.ai.reminders.filter((r) => r.todoIndex !== todoIndex),
+          },
+        };
+      })
     );
   }, []);
 
@@ -445,6 +540,10 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
       addManualText,
       updateItem,
       retryAiAnalysis,
+      toggleTodo,
+      togglePin,
+      setTodoReminder,
+      clearTodoReminder,
       removeItem,
       dismissImportBanner,
       semanticRank,
@@ -460,6 +559,10 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
       addManualText,
       updateItem,
       retryAiAnalysis,
+      toggleTodo,
+      togglePin,
+      setTodoReminder,
+      clearTodoReminder,
       removeItem,
       dismissImportBanner,
       semanticRank,
