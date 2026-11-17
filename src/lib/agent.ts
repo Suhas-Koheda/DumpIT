@@ -6,7 +6,6 @@ import { StateGraph, START, END, Annotation } from '@langchain/langgraph';
 import { extractAllUrls } from './link-reader';
 import { modelReady, summarizeEvidence } from './llm';
 import { readLinkTool, findLinksTool } from './agent-tools';
-import { shorten, heuristicSummary } from './agent-utils';
 
 // ── State annotation ─────────────────────────────────────────────────────────
 export type AgentStepStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
@@ -68,7 +67,7 @@ async function readNode(state: typeof AgentState.State): Promise<Partial<typeof 
     return { reads: reads + 1 };
   }
 
-  const s = step(`Reading ${shorten(next)}`, 'tool', 'running');
+  const s = step(`Reading ${next.length > 44 ? next.slice(0, 44) + '…' : next}`, 'tool', 'running');
   let newEvidence: string[] = [];
   let newSources: string[] = [];
   let newCandidates = state.candidates;
@@ -118,7 +117,7 @@ async function summarizeNode(state: typeof AgentState.State): Promise<Partial<ty
 
   if (!summary) {
     const sourceText = state.evidenceBlocks[state.evidenceBlocks.length - 1] ?? state.input.text ?? state.input.title;
-    summary = heuristicSummary(sourceText);
+    summary = sourceText.trim().slice(0, 280) || null;
   }
 
   s.status = 'done';
@@ -167,7 +166,7 @@ export async function runAgent(
 
   return {
     steps: result.steps,
-    summary: result.summary ?? heuristicSummary(result.evidenceBlocks.join('\n\n') || input.title),
+    summary: result.summary ?? (result.evidenceBlocks.join('\n\n').trim().slice(0, 280) || ''),
     sources: result.sources,
     extracted: result.evidenceBlocks.length > 0 ? result.evidenceBlocks.join('\n\n') : null,
   };
