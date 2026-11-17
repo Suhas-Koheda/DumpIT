@@ -13,12 +13,14 @@ import { SpaceMono_400Regular } from '@expo-google-fonts/space-mono';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ShareIntentProvider } from 'expo-share-intent';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 import ShareIntentWatcher from '@/components/ShareIntentWatcher';
 import Loader from '@/components/Loader';
+import UnlockScreen from '@/components/UnlockScreen';
 import { DumpProvider } from '@/lib/dump-store';
 import { setupNotificationChannel } from '@/lib/notifications';
+import { isLockEnabled } from '@/lib/pin';
 import { colors, fonts } from '@/lib/theme';
 
 // Expo Go cannot load the native share-intent module; running there with the
@@ -36,12 +38,19 @@ export default function RootLayout() {
     SpaceMono_400Regular,
   });
 
+  const [locked, setLocked] = useState<boolean | null>(null);
+
   useEffect(() => {
     setupNotificationChannel();
+    isLockEnabled().then(setLocked);
   }, []);
 
-  if (!fontsLoaded) {
+  if (!fontsLoaded || locked === null) {
     return <Loader message="OPENING THE VAULT" />;
+  }
+
+  if (locked) {
+    return <UnlockScreen onUnlocked={() => setLocked(false)} />;
   }
 
   return (
@@ -71,6 +80,9 @@ export default function RootLayout() {
                 headerShadowVisible: false,
               }}
             />
+            <Stack.Screen name="settings" options={{ title: 'CONFIG' }} />
+            <Stack.Screen name="board" options={{ title: 'BOARD' }} />
+            <Stack.Screen name="calendar" options={{ title: 'CALENDAR' }} />
           </Stack>
           <ShareIntentWatcher />
         </ShareIntentProvider>

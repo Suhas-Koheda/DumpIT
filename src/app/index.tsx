@@ -22,7 +22,7 @@ import { borders, colors, fonts } from '@/lib/theme';
 import { timeAgo } from '@/lib/time';
 import type { DumpItem } from '@/lib/types';
 
-type Filter = 'all' | 'link' | 'x' | 'linkedin' | 'text' | 'image';
+type Filter = 'all' | 'link' | 'x' | 'linkedin' | 'text' | 'image' | 'private';
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -31,6 +31,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'linkedin', label: 'LinkedIn' },
   { key: 'text', label: 'Text' },
   { key: 'image', label: 'Shots' },
+  { key: 'private', label: 'Private' },
 ];
 
 export default function InboxScreen() {
@@ -43,6 +44,8 @@ export default function InboxScreen() {
     addFromShare,
     aiState,
     semanticRank,
+    folders,
+    addFolder,
   } = useDumpStore();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -50,6 +53,9 @@ export default function InboxScreen() {
   const [semantic, setSemantic] = useState(false);
   const [semOrder, setSemOrder] = useState<Map<string, number> | null>(null);
   const [category, setCategory] = useState<string | null>(null);
+  const [folderId, setFolderId] = useState<string | null>(null);
+  const [folderInputOpen, setFolderInputOpen] = useState(false);
+  const [folderName, setFolderName] = useState('');
 
   const semanticWanted = semantic && query.trim().length >= 2 && aiState === 'ready';
   useEffect(() => {
@@ -75,6 +81,9 @@ export default function InboxScreen() {
         return false;
       if (filter === 'link' && item.kind !== 'link') return false;
       if (filter === 'text' && item.kind !== 'text') return false;
+      if (filter === 'private') return item.isPrivate;
+      if (item.isPrivate) return false; // private dumps hidden unless PIN-view/private filter
+      if (folderId && item.folderId !== folderId) return false;
       if (filter === 'image' && item.kind !== 'image') return false;
       if (category && (item.ai?.status !== 'done' || item.ai.category !== category)) return false;
       if (semanticActive) return true;
@@ -113,7 +122,7 @@ export default function InboxScreen() {
       });
     }
     return withPinnedFirst;
-  }, [items, query, filter, semanticActive, semOrder, category]);
+  }, [items, query, filter, semanticActive, semOrder, category, folderId]);
 
   const totalCount = items.length;
   const presentCategories = useMemo(
@@ -171,8 +180,19 @@ export default function InboxScreen() {
           <Text style={styles.logo}>DUMPIT</Text>
           <Text style={styles.tagline}>Share it. Dump it. Deal with it later.</Text>
         </View>
-        <View style={styles.countPill}>
-          <Text style={styles.countPillText}>{totalCount}</Text>
+        <View style={styles.headerRight}>
+          <Pressable style={styles.headerBtn} onPress={() => router.push('/board')}>
+            <Text style={styles.headerBtnText}>BOARD</Text>
+          </Pressable>
+          <Pressable style={styles.headerBtn} onPress={() => router.push('/calendar')}>
+            <Text style={styles.headerBtnText}>CAL</Text>
+          </Pressable>
+          <Pressable style={styles.headerBtn} onPress={() => router.push('/settings')}>
+            <Text style={styles.headerBtnText}>CFG</Text>
+          </Pressable>
+          <View style={styles.countPill}>
+            <Text style={styles.countPillText}>{totalCount}</Text>
+          </View>
         </View>
       </View>
 
@@ -270,6 +290,74 @@ export default function InboxScreen() {
         </ScrollView>
       )}
 
+      {/* Blocks (colored groups) */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.folderRow}
+      >
+        <Pressable
+          onPress={() => setFolderId(null)}
+          style={[styles.folderChip, folderId === null && styles.folderChipActive]}
+        >
+          <View style={[styles.folderDot, { backgroundColor: '#FFFFFF', borderColor: colors.border }]} />
+          <Text style={[styles.folderChipText, folderId === null && styles.folderChipTextActive]}>ALL</Text>
+        </Pressable>
+        {folders.map((folder) => {
+          const active = folderId === folder.id;
+          return (
+            <Pressable
+              key={folder.id}
+              onPress={() => setFolderId(active ? null : folder.id)}
+              style={[styles.folderChip, active && styles.folderChipActive]}
+            >
+              <View style={[styles.folderDot, { backgroundColor: folder.color }]} />
+              <Text
+                style={[styles.folderChipText, active && styles.folderChipTextActive]}
+                numberOfLines={1}
+              >
+                {folder.name.toUpperCase()}
+              </Text>
+            </Pressable>
+          );
+        })}
+        {folderInputOpen ? (
+          <View style={styles.folderChip}>
+            <TextInput
+              autoFocus
+              value={folderName}
+              onChangeText={setFolderName}
+              onBlur={() => {
+                const name = folderName.trim();
+                if (name) {
+                  const palette = ['#0000FF', '#008000', '#FF0000', '#FFA500', '#000000', '#7A5CFF'];
+                  addFolder(name, palette[Math.floor(Math.random() * palette.length)]);
+                }
+                setFolderName('');
+                setFolderInputOpen(false);
+              }}
+              placeholder="BLOCK NAME"
+              placeholderTextColor={colors.faint}
+              style={styles.folderInput}
+              returnKeyType="done"
+              onSubmitEditing={() => {
+                const name = folderName.trim();
+                if (name) {
+                  const palette = ['#0000FF', '#008000', '#FF0000', '#FFA500', '#000000'];
+                  addFolder(name, palette[Math.floor(Math.random() * palette.length)]);
+                }
+                setFolderName('');
+                setFolderInputOpen(false);
+              }}
+            />
+          </View>
+        ) : (
+          <Pressable onPress={() => setFolderInputOpen(true)} style={styles.folderChip}>
+            <Text style={styles.folderChipText}>+ BLOCK</Text>
+          </Pressable>
+        )}
+      </ScrollView>
+
       {/* List */}
       <FlatList
         data={visible}
@@ -287,7 +375,7 @@ export default function InboxScreen() {
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>
-              {query || filter !== 'all' || category ? 'NOTHING FOUND' : 'NOTHING IN THE VAULT'}
+              {query || filter !== 'all' || category || folderId ? 'NOTHING FOUND' : 'NOTHING IN THE VAULT'}
             </Text>
             <Text style={styles.emptyHint}>
               {query || filter !== 'all'
@@ -413,6 +501,65 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     borderBottomWidth: borders.thick,
     borderBottomColor: colors.border,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  headerBtn: {
+    borderWidth: borders.base,
+    borderColor: colors.border,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  headerBtnText: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: colors.text,
+  },
+  folderRow: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    gap: 8,
+    alignItems: 'center',
+  },
+  folderChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: borders.base,
+    borderColor: colors.border,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    maxWidth: 150,
+  },
+  folderChipActive: {
+    backgroundColor: colors.accent,
+  },
+  folderDot: {
+    width: 12,
+    height: 12,
+    borderWidth: borders.thin,
+    borderColor: colors.border,
+  },
+  folderChipText: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: colors.text,
+    flexShrink: 1,
+  },
+  folderChipTextActive: {
+    color: colors.ink,
+  },
+  folderInput: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: colors.text,
+    minWidth: 110,
+    paddingVertical: 0,
   },
   logo: {
     fontFamily: fonts.display,

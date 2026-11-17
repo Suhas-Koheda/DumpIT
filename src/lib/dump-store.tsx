@@ -25,9 +25,10 @@ import {
 } from './ai-models';
 import { deleteEmbedding, rankByEmbedding, saveEmbedding } from './embeddings';
 import { ocrAvailable, recognizeText } from './ocr';
-import type { DumpItem, DumpAi } from './types';
+import type { DumpItem, DumpAi, Folder } from './types';
 
 const STORAGE_KEY = 'dumpit.items.v1';
+const FOLDERS_KEY = 'dumpit.folders.v1';
 
 export interface SharePayload {
   text?: string | null;
@@ -68,6 +69,20 @@ interface DumpStore {
   setTodoReminder: (id: string, todoIndex: number, at: number) => Promise<boolean>;
   /** Cancel the reminder for one todo. */
   clearTodoReminder: (id: string, todoIndex: number) => void;
+  /** Markdown body of an item. */
+  setBody: (id: string, body: string) => void;
+  setKanbanState: (id: string, state: DumpItem['kanbanState']) => void;
+  togglePrivate: (id: string) => void;
+  assignFolder: (id: string, folderId: string | null) => void;
+  addAttachment: (id: string, attachment: import('./types').DumpAttachment) => void;
+  removeAttachment: (id: string, attachmentId: string) => void;
+  addMemo: (id: string, memo: import('./types').DumpMemo) => void;
+  removeMemo: (id: string, memoId: string) => void;
+  folders: Folder[];
+  addFolder: (name: string, color: string) => Folder;
+  removeFolder: (id: string) => void;
+  /** Replace the vault wholesale (used by import). */
+  replaceAll: (items: DumpItem[], folders: Folder[]) => void;
   removeItem: (id: string) => void;
   dismissImportBanner: () => void;
   /** Semantic search via on-device embeddings. Null when unavailable. */
@@ -115,10 +130,20 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
   const analysisRunningRef = useRef(false);
   const downloadingRef = useRef(false);
   const itemsRef = useRef<DumpItem[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
 
   // Load once on startup. Legacy items gain an AI slot (queued for analysis).
   useEffect(() => {
     let mounted = true;
+    AsyncStorage.getItem(FOLDERS_KEY).then((raw) => {
+      if (!mounted || !raw) return;
+      try {
+        const parsed = JSON.parse(raw) as Folder[];
+        if (Array.isArray(parsed)) setFolders(parsed);
+      } catch {
+        // ignore
+      }
+    });
     AsyncStorage.getItem(STORAGE_KEY)
       .then((raw) => {
         if (!mounted) return;
@@ -130,6 +155,12 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
                 parsed.map((item) => ({
                   ...item,
                   pinned: item.pinned ?? false,
+                  isPrivate: item.isPrivate ?? false,
+                  body: item.body ?? null,
+                  folderId: item.folderId ?? null,
+                  kanbanState: item.kanbanState ?? 'todo',
+                  attachments: item.attachments ?? [],
+                  memos: item.memos ?? [],
                   ai: { ...emptyAi('pending'), ...(item.ai ?? {}) },
                 }))
               );
@@ -149,6 +180,11 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(folders)).catch(() => {});
+  }, [folders, hydrated]);
 
   // Persist on every change (after hydration).
   useEffect(() => {
@@ -292,6 +328,12 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
             tags: [],
             source: payload.source,
             pinned: false,
+            isPrivate: false,
+            body: null,
+            folderId: null,
+            kanbanState: 'todo',
+            attachments: [],
+            memos: [],
             ai: emptyAi('pending'),
           });
         } catch {
@@ -308,6 +350,12 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
             tags: [],
             source: payload.source,
             pinned: false,
+            isPrivate: false,
+            body: null,
+            folderId: null,
+            kanbanState: 'todo',
+            attachments: [],
+            memos: [],
             ai: emptyAi('pending'),
           });
         }
@@ -325,6 +373,12 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
           tags: [],
           source: payload.source,
           pinned: false,
+          isPrivate: false,
+          body: null,
+          folderId: null,
+          kanbanState: 'todo',
+          attachments: [],
+          memos: [],
           ai: emptyAi('pending'),
         });
       }
@@ -347,6 +401,12 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
         tags: [],
         source: payload.source,
         pinned: false,
+        isPrivate: false,
+        body: null,
+        folderId: null,
+        kanbanState: 'todo',
+        attachments: [],
+        memos: [],
         ai: emptyAi('pending'),
       });
     } else if (payload.text?.trim()) {
@@ -364,6 +424,12 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
         tags: [],
         source: payload.source,
         pinned: false,
+        isPrivate: false,
+        body: null,
+        folderId: null,
+        kanbanState: 'todo',
+        attachments: [],
+        memos: [],
         ai: emptyAi('pending'),
       });
     }
@@ -397,6 +463,70 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
         return next;
       })
     );
+  }, []);
+
+  const setBody = useCallback((id: string, body: string) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, body } : item)));
+  }, []);
+
+  const setKanbanState = useCallback<DumpStore['setKanbanState']>((id, kanbanState) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, kanbanState } : item)));
+  }, []);
+
+  const togglePrivate = useCallback((id: string) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, isPrivate: !item.isPrivate } : item)));
+  }, []);
+
+  const assignFolder = useCallback((id: string, folderId: string | null) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, folderId } : item)));
+  }, []);
+
+  const addAttachment = useCallback((id: string, attachment: import('./types').DumpAttachment) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, attachments: [...item.attachments, attachment] } : item
+      )
+    );
+  }, []);
+
+  const removeAttachment = useCallback((id: string, attachmentId: string) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? { ...item, attachments: item.attachments.filter((a) => a.id !== attachmentId) }
+          : item
+      )
+    );
+  }, []);
+
+  const addMemo = useCallback((id: string, memo: import('./types').DumpMemo) => {
+    setItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, memos: [...item.memos, memo] } : item))
+    );
+  }, []);
+
+  const removeMemo = useCallback((id: string, memoId: string) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, memos: item.memos.filter((m) => m.id !== memoId) } : item
+      )
+    );
+  }, []);
+
+  const addFolder = useCallback<DumpStore['addFolder']>((name, color) => {
+    const folder: Folder = { id: makeId(), name: name.trim().slice(0, 40), color };
+    setFolders((prev) => [...prev, folder]);
+    return folder;
+  }, []);
+
+  const removeFolder = useCallback((id: string) => {
+    setFolders((prev) => prev.filter((folder) => folder.id !== id));
+    setItems((prev) => prev.map((item) => (item.folderId === id ? { ...item, folderId: null } : item)));
+  }, []);
+
+  const replaceAll = useCallback((newItems: DumpItem[], newFolders: Folder[]) => {
+    setItems(newItems);
+    setFolders(newFolders);
   }, []);
 
   const removeItem = useCallback((id: string) => {
@@ -544,6 +674,18 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
       togglePin,
       setTodoReminder,
       clearTodoReminder,
+      setBody,
+      setKanbanState,
+      togglePrivate,
+      assignFolder,
+      addAttachment,
+      removeAttachment,
+      addMemo,
+      removeMemo,
+      folders,
+      addFolder,
+      removeFolder,
+      replaceAll,
       removeItem,
       dismissImportBanner,
       semanticRank,
@@ -563,6 +705,18 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
       togglePin,
       setTodoReminder,
       clearTodoReminder,
+      setBody,
+      setKanbanState,
+      togglePrivate,
+      assignFolder,
+      addAttachment,
+      removeAttachment,
+      addMemo,
+      removeMemo,
+      folders,
+      addFolder,
+      removeFolder,
+      replaceAll,
       removeItem,
       dismissImportBanner,
       semanticRank,

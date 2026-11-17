@@ -5,6 +5,28 @@ export type Platform = 'x' | 'linkedin' | 'web';
 
 export type DumpSource = 'share' | 'manual' | 'sample';
 
+export type KanbanState = 'todo' | 'doing' | 'done';
+
+export interface DumpAttachment {
+  id: string;
+  name: string;
+  uri: string;
+  mimeType: string | null;
+  size: number | null;
+}
+
+export interface DumpMemo {
+  id: string;
+  uri: string;
+  createdAt: number;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export type AiStatus = 'pending' | 'analyzing' | 'done' | 'error' | 'disabled';
 
 export const AI_CATEGORIES = [
@@ -83,6 +105,15 @@ export interface DumpItem {
   createdAt: number;
   /** Pinned items float to the top of the vault. */
   pinned: boolean;
+  /** Secret note — hidden until the vault PIN is entered. */
+  isPrivate: boolean;
+  /** Editable markdown body (rich text), separate from the shared payload. */
+  body: string | null;
+  /** Colored block this dump belongs to. */
+  folderId: string | null;
+  kanbanState: KanbanState;
+  attachments: DumpAttachment[];
+  memos: DumpMemo[];
   /** On-device AI analysis. `null` = not requested yet / legacy item. */
   ai: DumpAi | null;
 }

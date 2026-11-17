@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,11 +18,37 @@ import DateTimePicker, {
 } from '@react-native-community/datetimepicker';
 import { Image } from 'expo-image';
 
+import * as DocumentPicker from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
+import { Directory, File, Paths } from 'expo-file-system';
+import Markdown from 'react-native-markdown-display';
+import
+{
+  useAudioPlayer,
+  useAudioRecorder,
+  useAudioRecorderState,
+  RecordingPresets,
+} from 'expo-audio';
+
+import { initWhisper } from 'whisper.rn/index';
+
 import Badge from '@/components/Badge';
 import KnowledgeMap from '@/components/KnowledgeMap';
 import { useDumpStore } from '@/lib/dump-store';
 import { borders, colors, fonts } from '@/lib/theme';
 import { fullDate } from '@/lib/time';
+import { makeId } from '@/lib/classify';
+
+/** Module-level helpers keep Date.now() out of the component body. */
+function newId(): string {
+  return makeId();
+}
+function makeAttachmentEntry(name: string, uri: string, mimeType: string | null, size: number | null) {
+  return { id: newId(), name, uri, mimeType, size };
+}
+function makeMemoEntry(uri: string) {
+  return { id: newId(), uri, createdAt: Date.now() };
+}
 
 function formatShortDateTime(ts: number): string {
   return new Date(ts)
@@ -45,6 +71,71 @@ function defaultReminderDate(): Date {
   return new Date(Date.now() + 60 * 60 * 1000);
 }
 
+const markdownStyle = {
+  body: { color: colors.text, fontFamily: fonts.body, fontSize: 15, lineHeight: 22 },
+  heading1: { color: colors.text, fontFamily: fonts.display, fontSize: 22, marginTop: 8 },
+  heading2: { color: colors.text, fontFamily: fonts.display, fontSize: 17, marginTop: 8 },
+  heading3: { color: colors.text, fontFamily: fonts.bodySemi, fontSize: 15 },
+  strong: { fontFamily: fonts.bodySemi },
+  em: { fontStyle: 'italic' as const },
+  code_inline: { fontFamily: fonts.mono, backgroundColor: colors.sunken, fontSize: 12 },
+  fence: { fontFamily: fonts.mono, backgroundColor: colors.sunken, fontSize: 11, padding: 8 },
+  link: { color: colors.blue, textDecorationLine: 'underline' as const },
+  blockquote: { backgroundColor: colors.sunken, borderColor: colors.border, borderWidth: 2, padding: 8 },
+  bullet_list_content: { fontFamily: fonts.body },
+  list_item: { marginBottom: 2 },
+};
+
+function MemoRow({
+  uri,
+  onDelete,
+  onTranscribe,
+  transcribing,
+}: {
+  uri: string;
+  onDelete: () => void;
+  onTranscribe: () => void;
+  transcribing: boolean;
+}) {
+  const player = useAudioPlayer(uri);
+  const [playing, setPlaying] = useState(false);
+
+  useEffect(() => {
+    const sub = player.addListener('playbackStatusUpdate', (status) => {
+      if (status.didJustFinish) {
+        setPlaying(false);
+        player.seekTo(0);
+      }
+    });
+    return () => sub.remove();
+  }, [player]);
+
+  return (
+    <View style={styles.memoRow}>
+      <Pressable
+        style={styles.memoPlayBtn}
+        onPress={() => {
+          if (playing) {
+            player.pause();
+            setPlaying(false);
+          } else {
+            player.play();
+            setPlaying(true);
+          }
+        }}
+      >
+        <Text style={styles.memoPlayText}>{playing ? 'PAUSE' : 'PLAY'}</Text>
+      </Pressable>
+      <Pressable style={styles.memoTranscribeBtn} onPress={onTranscribe} disabled={transcribing}>
+        <Text style={styles.memoTranscribeText}>{transcribing ? 'TRANSCRIBING…' : 'TRANSCRIBE'}</Text>
+      </Pressable>
+      <Pressable onPress={onDelete} style={styles.memoDeleteBtn} hitSlop={8}>
+        <Text style={styles.memoDeleteText}>DEL</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function DumpDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const {
@@ -54,8 +145,17 @@ export default function DumpDetailScreen() {
     retryAiAnalysis,
     toggleTodo,
     togglePin,
+    togglePrivate,
     setTodoReminder,
     clearTodoReminder,
+    setBody,
+    assignFolder,
+    addAttachment,
+    removeAttachment,
+    addMemo,
+    removeMemo,
+    setKanbanState,
+    folders,
     aiState,
   } = useDumpStore();
   const item = items.find((entry) => entry.id === id);
@@ -66,6 +166,15 @@ export default function DumpDetailScreen() {
   const [tagsFocused, setTagsFocused] = useState(false);
   const [pickingTodo, setPickingTodo] = useState<number | null>(null);
   const [pickedDate, setPickedDate] = useState(defaultReminderDate);
+  const [bodyDraft, setBodyDraft] = useState(item?.body ?? item?.text ?? '');
+  const [bodyEditing, setBodyEditing] = useState(false);
+  const [translateTo, setTranslateTo] = useState<string | null>(null);
+  const [translation, setTranslation] = useState<string | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const [whisperProgress, setWhisperProgress] = useState<number | null>(null);
+  const [transcribing, setTranscribing] = useState(false);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder);
 
   if (!item) {
     return (
@@ -124,6 +233,128 @@ export default function DumpDetailScreen() {
     }
   };
 
+  const commitBody = () => {
+    const value = bodyDraft.trim();
+    if (value !== (item?.body ?? '')) setBody(item!.id, value || '');
+    if (value === '') setBody(item!.id, '');
+  };
+
+  const attachFile = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: '*/*',
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    const dir = new Directory(Paths.document, 'dumpit-attachments');
+    if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
+    const name = `${makeId()}-${asset.name ?? 'file'}`;
+    const dest = new File(dir, name);
+    try {
+      await new File(asset.uri).copy(dest);
+    } catch {
+      // best effort — keep reference to cache copy instead
+    }
+    addAttachment(item!.id, makeAttachmentEntry(asset.name ?? 'file', dest.exists ? dest.uri : asset.uri, asset.mimeType ?? null, asset.size ?? null));
+  };
+
+  const openAttachment = async (uri: string) => {
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri, { dialogTitle: 'Open with…' });
+    }
+  };
+
+  const toggleRecording = async () => {
+    if (recorderState.isRecording) {
+      await recorder.stop();
+      const uri = recorder.uri;
+      if (uri) {
+        const dir = new Directory(Paths.document, 'dumpit-memos');
+        if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
+        const dest = new File(dir, `memo-${newId()}.m4a`);
+        try {
+          await new File(uri).copy(dest);
+        } catch {
+          // keep cache uri
+        }
+        addMemo(item!.id, makeMemoEntry(dest.exists ? dest.uri : uri));
+      }
+    } else {
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+    }
+  };
+
+  const whisperModelFile = () => {
+    const dir = new Directory(Paths.document, 'dumpit-models');
+    if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
+    return new File(dir, 'ggml-tiny.en.bin');
+  };
+
+  const transcribeMemo = async (memoUri: string) => {
+    setTranscribing(true);
+    try {
+      const model = whisperModelFile();
+      if (!model.exists || model.size === 0) {
+        setWhisperProgress(0);
+        const task = File.createDownloadTask(
+          'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin',
+          model,
+          {
+            onProgress: ({ bytesWritten, totalBytes }) => {
+              const total = totalBytes > 0 ? totalBytes : 77_704_715;
+              setWhisperProgress(Math.min(1, bytesWritten / total));
+            },
+          }
+        );
+        await task.downloadAsync();
+        setWhisperProgress(null);
+      }
+      setTranscribing(true);
+      const context = await initWhisper({ filePath: model.uri, useGpu: true });
+      const { promise } = context.transcribe(memoUri, { language: 'en' });
+      const result = await promise;
+      const text = result.result?.trim();
+      if (text) {
+        const next = (bodyDraft.trim() ? bodyDraft.trim() + '\n\n' : '') + `**REF:** ${text}`;
+        setBodyDraft(next);
+        setBody(item!.id, next);
+      }
+    } catch (error) {
+      Alert.alert('Transcription failed', error instanceof Error ? error.message : String(error));
+    } finally {
+      setTranscribing(false);
+      setWhisperProgress(null);
+    }
+  };
+
+  const translate = async (to: 'ru' | 'es' | 'hi' | 'fr') => {
+    setTranslating(true);
+    setTranslateTo(to);
+    setTranslation(null);
+    try {
+      const { translate, downloadModels, TranslateLanguage } = await import(
+        'react-native-mlkit-translation'
+      );
+      const lang =
+        to === 'ru' ? TranslateLanguage.RUSSIAN
+        : to === 'es' ? TranslateLanguage.SPANISH
+        : to === 'hi' ? TranslateLanguage.HINDI
+        : TranslateLanguage.FRENCH;
+      await downloadModels([lang], { wifiOnly: true });
+      const input =
+        (item!.body ?? item!.text ?? item!.title).trim().slice(0, 1200) || item!.title;
+      const out = await translate({ text: input, from: TranslateLanguage.ENGLISH, to: lang });
+      setTranslation(out);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Translation failed — needs model download (Wi-Fi).';
+      setTranslation(`⚠ ${message}`);
+    } finally {
+      setTranslating(false);
+    }
+  };
+
   const confirmDelete = () => {
     Alert.alert('Burn this dump?', 'This removes it from your phone.', [
       { text: 'Cancel', style: 'cancel' },
@@ -160,6 +391,11 @@ export default function DumpDetailScreen() {
             <Pressable onPress={() => togglePin(item.id)} style={[styles.pinChip, item.pinned && styles.pinChipActive]}>
               <Text style={[styles.pinChipText, item.pinned && styles.pinChipTextActive]}>
                 {item.pinned ? 'PINNED' : 'PIN'}
+              </Text>
+            </Pressable>
+            <Pressable onPress={() => togglePrivate(item.id)} style={[styles.pinChip, item.isPrivate && styles.pinChipActive]}>
+              <Text style={[styles.pinChipText, item.isPrivate && styles.pinChipTextActive]}>
+                {item.isPrivate ? 'PRIVATE' : 'MAKE PRIVATE'}
               </Text>
             </Pressable>
           </View>
@@ -377,6 +613,164 @@ export default function DumpDetailScreen() {
               </View>
             ))}
           </View>
+        )}
+
+        {/* Blocks / folders */}
+        <Text style={styles.sectionLabel}>BLOCK</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.folderPickRow}>
+          <Pressable
+            onPress={() => assignFolder(item.id, null)}
+            style={[styles.folderChip, item.folderId === null && styles.folderChipActive]}
+          >
+            <View style={[styles.folderDot, { backgroundColor: colors.bg }]} />
+            <Text style={styles.folderChipText}>NONE</Text>
+          </Pressable>
+          {folders.map((folder) => {
+            const active = item.folderId === folder.id;
+            return (
+              <Pressable
+                key={folder.id}
+                onPress={() => assignFolder(item.id, folder.id)}
+                style={[styles.folderChip, active && styles.folderChipActive]}
+              >
+                <View style={[styles.folderDot, { backgroundColor: folder.color }]} />
+                <Text style={styles.folderChipText} numberOfLines={1}>
+                  {folder.name.toUpperCase()}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {/* Kanban state */}
+        <Text style={styles.sectionLabel}>BOARD</Text>
+        <View style={styles.kanbanRow}>
+          {(['todo', 'doing', 'done'] as const).map((state) => {
+            const active = item.kanbanState === state;
+            return (
+              <Pressable
+                key={state}
+                onPress={() => setKanbanState(item.id, state)}
+                style={[styles.kanbanChip, active && styles.kanbanChipActive]}
+              >
+                <Text style={styles.kanbanChipText}>{state.toUpperCase()}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* Rich body (markdown) */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionLabel}>BODY — MARKDOWN</Text>
+          <Pressable onPress={() => setBodyEditing((v) => !v)} style={styles.smallBtn}>
+            <Text style={styles.smallBtnText}>{bodyEditing ? 'PREVIEW' : 'EDIT'}</Text>
+          </Pressable>
+        </View>
+        {bodyEditing ? (
+          <>
+            <View style={styles.toolbar}>
+              {['## ', '**', '*', '- ', '[ ] ', '> ', '`'].map((token) => (
+                <Pressable
+                  key={token}
+                  style={styles.toolChip}
+                  onPress={() => setBodyDraft((prev) => prev + token)}
+                >
+                  <Text style={styles.toolChipText}>
+                    {token === '## ' ? 'H' : token === '- ' ? 'LIST' : token === '[ ] ' ? 'TODO' : token === '> ' ? 'QUOTE' : token === '`' ? 'CODE' : token}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              value={bodyDraft}
+              onChangeText={setBodyDraft}
+              onBlur={commitBody}
+              placeholder="Write the note here — markdown supported."
+              placeholderTextColor={colors.faint}
+              style={styles.bodyInput}
+              multiline
+              textAlignVertical="top"
+            />
+          </>
+        ) : (
+          <View style={styles.bodyPreview}>
+            <Markdown style={markdownStyle}>{bodyDraft.trim() || '_Nothing yet. Tap EDIT._'}</Markdown>
+          </View>
+        )}
+
+        {/* Attachments */}
+        <Text style={styles.sectionLabel}>ATTACHMENTS</Text>
+        {item.attachments.map((attachment) => (
+          <View key={attachment.id} style={styles.attachmentRow}>
+            <Pressable style={styles.attachmentMain} onPress={() => openAttachment(attachment.uri)}>
+              <Text style={styles.attachmentName} numberOfLines={1}>
+                {attachment.name.toUpperCase()}
+              </Text>
+              {attachment.size != null && (
+                <Text style={styles.attachmentSize}>{Math.round(attachment.size / 1024)} KB</Text>
+              )}
+            </Pressable>
+            <Pressable onPress={() => removeAttachment(item.id, attachment.id)} style={styles.smallBtn}>
+              <Text style={styles.smallBtnText}>DEL</Text>
+            </Pressable>
+          </View>
+        ))}
+        <Pressable style={styles.btnGhost} onPress={attachFile}>
+          <Text style={styles.btnGhostText}>+ ATTACH FILE (PDF / TXT)</Text>
+        </Pressable>
+
+        {/* Voice memos + dictation */}
+        <Text style={styles.sectionLabel}>VOICE MEMO</Text>
+        <View style={styles.memoControls}>
+          <Pressable
+            style={[styles.recordBtn, recorderState.isRecording && styles.recordBtnActive]}
+            onPress={toggleRecording}
+          >
+            <Text style={[styles.recordBtnText, recorderState.isRecording && styles.recordBtnTextActive]}>
+              {recorderState.isRecording ? '■ STOP' : '● RECORD'}
+            </Text>
+          </Pressable>
+          {whisperProgress !== null && (
+            <View style={styles.whisperProgress}>
+              <Text style={styles.whisperProgressText}>
+                WHISPER {Math.round(whisperProgress * 100)}%
+              </Text>
+              <View style={styles.whisperBar}>
+                <View style={[styles.whisperFill, { width: `${Math.round(whisperProgress * 100)}%` }]} />
+              </View>
+            </View>
+          )}
+        </View>
+        {item.memos.map((memo) => (
+          <MemoRow
+            key={memo.id}
+            uri={memo.uri}
+            onDelete={() => removeMemo(item.id, memo.id)}
+            onTranscribe={() => transcribeMemo(memo.uri)}
+            transcribing={transcribing}
+          />
+        ))}
+
+        {/* Translate (on-device) */}
+        <Text style={styles.sectionLabel}>TRANSLATE (ON-DEVICE)</Text>
+        <View style={styles.translateRow}>
+          {(['ru', 'es', 'hi', 'fr'] as const).map((lang) => (
+            <Pressable
+              key={lang}
+              style={[styles.translateChip, translateTo === lang && styles.translateChipActive]}
+              onPress={() => translate(lang)}
+            >
+              <Text style={styles.translateChipText}>
+                {lang === 'ru' ? 'RUS' : lang === 'es' ? 'SPA' : lang === 'hi' ? 'HIN' : 'FRA'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        {translating && <Text style={styles.translating}>TRANSLATING… (first call downloads the model)</Text>}
+        {translation && (
+          <Text style={styles.translationBox} selectable>
+            {translation}
+          </Text>
         )}
 
         <Text style={styles.source}>{SOURCE_LABEL[item.source] ?? item.source}</Text>
@@ -772,5 +1166,264 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 11,
     letterSpacing: 2,
+  },
+  memoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: borders.base,
+    borderColor: colors.border,
+    padding: 8,
+  },
+  memoPlayBtn: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  memoPlayText: {
+    fontFamily: fonts.label,
+    color: colors.ink,
+    fontSize: 10,
+    letterSpacing: 1.5,
+  },
+  memoTranscribeBtn: {
+    borderWidth: borders.base,
+    borderColor: colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flex: 1,
+    alignItems: 'center',
+  },
+  memoTranscribeText: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: colors.text,
+  },
+  memoDeleteBtn: {
+    borderWidth: borders.base,
+    borderColor: colors.border,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  memoDeleteText: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: colors.text,
+  },
+  recordBtn: {
+    borderWidth: borders.thick,
+    borderColor: colors.border,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    alignSelf: 'flex-start',
+  },
+  recordBtnActive: {
+    backgroundColor: colors.error,
+    borderColor: colors.error,
+  },
+  recordBtnText: {
+    fontFamily: fonts.label,
+    color: colors.text,
+    fontSize: 12,
+    letterSpacing: 2,
+  },
+  recordBtnTextActive: {
+    color: colors.ink,
+  },
+  memoControls: {
+    gap: 8,
+  },
+  whisperProgress: {
+    gap: 4,
+  },
+  whisperProgressText: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: colors.muted,
+  },
+  whisperBar: {
+    height: 14,
+    backgroundColor: colors.sunken,
+    borderWidth: borders.base,
+    borderColor: colors.border,
+  },
+  whisperFill: {
+    height: '100%',
+    backgroundColor: colors.accent,
+  },
+  translateRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  translateChip: {
+    borderWidth: borders.thick,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  translateChipActive: {
+    backgroundColor: colors.accent,
+  },
+  translateChipText: {
+    fontFamily: fonts.label,
+    color: colors.text,
+    fontSize: 11,
+    letterSpacing: 2,
+  },
+  translating: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: colors.muted,
+    letterSpacing: 0.5,
+  },
+  translationBox: {
+    fontFamily: fonts.body,
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 19,
+    borderWidth: borders.base,
+    borderColor: colors.border,
+    backgroundColor: colors.sunken,
+    padding: 10,
+  },
+  folderPickRow: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  folderChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: borders.base,
+    borderColor: colors.border,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  folderChipActive: {
+    backgroundColor: colors.accent,
+  },
+  folderDot: {
+    width: 12,
+    height: 12,
+    borderWidth: borders.thin,
+    borderColor: colors.border,
+  },
+  folderChipText: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: colors.text,
+    flexShrink: 1,
+  },
+  kanbanRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  kanbanChip: {
+    flex: 1,
+    borderWidth: borders.thick,
+    borderColor: colors.border,
+    paddingVertical: 8,
+    alignItems: 'center',
+    backgroundColor: colors.bg,
+  },
+  kanbanChipActive: {
+    backgroundColor: colors.accent,
+  },
+  kanbanChipText: {
+    fontFamily: fonts.label,
+    fontSize: 10,
+    letterSpacing: 2,
+    color: colors.text,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  smallBtn: {
+    borderWidth: borders.base,
+    borderColor: colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  smallBtnText: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: colors.text,
+  },
+  toolbar: {
+    flexDirection: 'row',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  toolChip: {
+    borderWidth: borders.base,
+    borderColor: colors.border,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    backgroundColor: colors.sunken,
+  },
+  toolChipText: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: colors.text,
+  },
+  bodyInput: {
+    fontFamily: fonts.mono,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.text,
+    backgroundColor: colors.sunken,
+    borderWidth: borders.thick,
+    borderColor: colors.border,
+    padding: 12,
+    minHeight: 140,
+  },
+  bodyPreview: {
+    borderWidth: borders.base,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+    padding: 12,
+    minHeight: 100,
+  },
+  attachmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: borders.base,
+    borderColor: colors.border,
+    padding: 8,
+  },
+  attachmentMain: {
+    flex: 1,
+    gap: 2,
+  },
+  attachmentName: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 0.5,
+    color: colors.text,
+  },
+  attachmentSize: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: colors.faint,
+  },
+  btnGhost: {
+    borderWidth: borders.thick,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  btnGhostText: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    letterSpacing: 1,
+    color: colors.muted,
   },
 });
