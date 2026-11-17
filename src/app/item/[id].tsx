@@ -1,45 +1,51 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Linking,
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
-import DateTimePicker, {
-  DateTimePickerEvent,
-} from '@react-native-community/datetimepicker';
 import { Image } from 'expo-image';
-
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import {
+  ActivityIndicator,
+  Appbar,
+  Button,
+  Card,
+  Chip,
+  Divider,
+  IconButton,
+  Surface,
+  TextInput,
+  Text,
+  useTheme,
+} from 'react-native-paper';
+import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Sharing from 'expo-sharing';
 import { Directory, File, Paths } from 'expo-file-system';
 import Markdown from 'react-native-markdown-display';
-import
-{
+import {
   useAudioPlayer,
   useAudioRecorder,
   useAudioRecorderState,
   RecordingPresets,
 } from 'expo-audio';
 
-import { initWhisper } from 'whisper.rn/index';
-
 import Badge from '@/components/Badge';
 import KnowledgeMap from '@/components/KnowledgeMap';
 import { useDumpStore } from '@/lib/dump-store';
-import { borders, colors, fonts } from '@/lib/theme';
 import { fullDate } from '@/lib/time';
 import { makeId } from '@/lib/classify';
+// whisper.rn ships no root "." export; Metro resolves it via its "react-native" field,
+// and the "whisper.rn/index" subpath gives TypeScript the declarations for it.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { initWhisper } = require('whisper.rn') as typeof import('whisper.rn/index');
 
-/** Module-level helpers keep Date.now() out of the component body. */
 function newId(): string {
   return makeId();
 }
@@ -49,94 +55,17 @@ function makeAttachmentEntry(name: string, uri: string, mimeType: string | null,
 function makeMemoEntry(uri: string) {
   return { id: newId(), uri, createdAt: Date.now() };
 }
-
-function formatShortDateTime(ts: number): string {
-  return new Date(ts)
-    .toLocaleString(undefined, {
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-    .toUpperCase();
-}
-
-const SOURCE_LABEL: Record<string, string> = {
-  share: 'SHARED FROM ANOTHER APP',
-  manual: 'ADDED BY HAND',
-  sample: 'SAMPLE / SIMULATED SHARE',
-};
-
 function defaultReminderDate(): Date {
   return new Date(Date.now() + 60 * 60 * 1000);
 }
-
-const markdownStyle = {
-  body: { color: colors.text, fontFamily: fonts.body, fontSize: 15, lineHeight: 22 },
-  heading1: { color: colors.text, fontFamily: fonts.display, fontSize: 22, marginTop: 8 },
-  heading2: { color: colors.text, fontFamily: fonts.display, fontSize: 17, marginTop: 8 },
-  heading3: { color: colors.text, fontFamily: fonts.bodySemi, fontSize: 15 },
-  strong: { fontFamily: fonts.bodySemi },
-  em: { fontStyle: 'italic' as const },
-  code_inline: { fontFamily: fonts.mono, backgroundColor: colors.sunken, fontSize: 12 },
-  fence: { fontFamily: fonts.mono, backgroundColor: colors.sunken, fontSize: 11, padding: 8 },
-  link: { color: colors.blue, textDecorationLine: 'underline' as const },
-  blockquote: { backgroundColor: colors.sunken, borderColor: colors.border, borderWidth: 2, padding: 8 },
-  bullet_list_content: { fontFamily: fonts.body },
-  list_item: { marginBottom: 2 },
-};
-
-function MemoRow({
-  uri,
-  onDelete,
-  onTranscribe,
-  transcribing,
-}: {
-  uri: string;
-  onDelete: () => void;
-  onTranscribe: () => void;
-  transcribing: boolean;
-}) {
-  const player = useAudioPlayer(uri);
-  const [playing, setPlaying] = useState(false);
-
-  useEffect(() => {
-    const sub = player.addListener('playbackStatusUpdate', (status) => {
-      if (status.didJustFinish) {
-        setPlaying(false);
-        player.seekTo(0);
-      }
-    });
-    return () => sub.remove();
-  }, [player]);
-
-  return (
-    <View style={styles.memoRow}>
-      <Pressable
-        style={styles.memoPlayBtn}
-        onPress={() => {
-          if (playing) {
-            player.pause();
-            setPlaying(false);
-          } else {
-            player.play();
-            setPlaying(true);
-          }
-        }}
-      >
-        <Text style={styles.memoPlayText}>{playing ? 'PAUSE' : 'PLAY'}</Text>
-      </Pressable>
-      <Pressable style={styles.memoTranscribeBtn} onPress={onTranscribe} disabled={transcribing}>
-        <Text style={styles.memoTranscribeText}>{transcribing ? 'TRANSCRIBING…' : 'TRANSCRIBE'}</Text>
-      </Pressable>
-      <Pressable onPress={onDelete} style={styles.memoDeleteBtn} hitSlop={8}>
-        <Text style={styles.memoDeleteText}>DEL</Text>
-      </Pressable>
-    </View>
-  );
+function formatShortDateTime(ts: number): string {
+  return new Date(ts)
+    .toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    .toUpperCase();
 }
 
 export default function DumpDetailScreen() {
+  const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const {
     items,
@@ -162,12 +91,10 @@ export default function DumpDetailScreen() {
 
   const [noteDraft, setNoteDraft] = useState(item?.note ?? '');
   const [tagsDraft, setTagsDraft] = useState(item?.tags.join(', ') ?? '');
-  const [noteFocused, setNoteFocused] = useState(false);
-  const [tagsFocused, setTagsFocused] = useState(false);
-  const [pickingTodo, setPickingTodo] = useState<number | null>(null);
-  const [pickedDate, setPickedDate] = useState(defaultReminderDate);
   const [bodyDraft, setBodyDraft] = useState(item?.body ?? item?.text ?? '');
   const [bodyEditing, setBodyEditing] = useState(false);
+  const [pickingTodo, setPickingTodo] = useState<number | null>(null);
+  const [pickedDate, setPickedDate] = useState(defaultReminderDate);
   const [translateTo, setTranslateTo] = useState<string | null>(null);
   const [translation, setTranslation] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
@@ -176,16 +103,25 @@ export default function DumpDetailScreen() {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder);
 
+  const markdownStyle: Record<string, object> = {
+    body: { color: theme.colors.onSurface, fontSize: 16, lineHeight: 24 },
+    heading1: { color: theme.colors.onSurface, fontWeight: '800', fontSize: 22, marginTop: 8 },
+    heading2: { color: theme.colors.onSurface, fontWeight: '800', fontSize: 18, marginTop: 8 },
+    heading3: { color: theme.colors.onSurface, fontWeight: '700', fontSize: 16 },
+    strong: { fontWeight: '700' },
+    em: { fontStyle: 'italic' },
+    code_inline: { fontFamily: 'monospace', backgroundColor: theme.colors.surfaceVariant, fontSize: 12 },
+    fence: { fontFamily: 'monospace', backgroundColor: theme.colors.surfaceVariant, fontSize: 11, padding: 8 },
+    link: { color: theme.colors.primary, textDecorationLine: 'underline' },
+    blockquote: { backgroundColor: theme.colors.surfaceVariant, padding: 10, borderRadius: 10 },
+  };
+
   if (!item) {
     return (
-      <SafeAreaView style={styles.safe} edges={['bottom']}>
-        <View style={styles.missing}>
-          <Text style={styles.missingTitle}>DUMP NOT FOUND</Text>
-          <Text style={styles.missingBody}>That dump is gone, traveler.</Text>
-          <Pressable style={styles.missingBtn} onPress={() => router.back()}>
-            <Text style={styles.missingBtnText}>BACK TO VAULT</Text>
-          </Pressable>
-        </View>
+      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center', gap: 12 }} edges={['bottom']}>
+        <Ionicons name="alert-circle-outline" size={48} color={theme.colors.outline} />
+        <Text variant="titleMedium">That dump is gone</Text>
+        <Button mode="contained" onPress={() => router.back()}>Back to inbox</Button>
       </SafeAreaView>
     );
   }
@@ -193,75 +129,29 @@ export default function DumpDetailScreen() {
   const commitNote = () => {
     if (noteDraft !== item.note) updateItem(item.id, { note: noteDraft.trim() });
   };
-
   const commitTags = () => {
-    const parsed = tagsDraft
-      .split(',')
-      .map((tag) => tag.trim())
-      .filter(Boolean);
+    const parsed = tagsDraft.split(',').map((t) => t.trim()).filter(Boolean);
     updateItem(item.id, { tags: parsed });
     setTagsDraft(parsed.join(', '));
   };
-
-  const startPickingReminder = (index: number) => {
-    setPickingTodo(index);
-    setPickedDate(defaultReminderDate());
-  };
-
-  const commitReminder = async (todoIndex: number, date: Date) => {
-    if (!item) return;
-    const ok = await setTodoReminder(item.id, todoIndex, date.getTime());
-    if (!ok) {
-      Alert.alert(
-        'Could not set reminder',
-        'Notifications are blocked for this app, or scheduling failed. Enable notifications for DumpIT in system settings.'
-      );
-    }
-    setPickingTodo(null);
-  };
-
-  const handlePickerChange = (event: DateTimePickerEvent, date?: Date) => {
-    if (event.type === 'dismissed') {
-      setPickingTodo(null);
-      return;
-    }
-    if (date) {
-      setPickedDate(date);
-      if (Platform.OS === 'android' || event.type === 'set') {
-        void commitReminder(pickingTodo ?? 0, date);
-      }
-    }
-  };
-
   const commitBody = () => {
     const value = bodyDraft.trim();
-    if (value !== (item?.body ?? '')) setBody(item!.id, value || '');
-    if (value === '') setBody(item!.id, '');
+    if (value !== (item.body ?? '')) setBody(item.id, value || '');
+    setBodyEditing(false);
   };
 
   const attachFile = async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: '*/*',
-      copyToCacheDirectory: true,
-    });
+    const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
     const dir = new Directory(Paths.document, 'dumpit-attachments');
     if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
-    const name = `${makeId()}-${asset.name ?? 'file'}`;
-    const dest = new File(dir, name);
-    try {
-      await new File(asset.uri).copy(dest);
-    } catch {
-      // best effort — keep reference to cache copy instead
-    }
-    addAttachment(item!.id, makeAttachmentEntry(asset.name ?? 'file', dest.exists ? dest.uri : asset.uri, asset.mimeType ?? null, asset.size ?? null));
+    const dest = new File(dir, `${newId()}-${asset.name ?? 'file'}`);
+    try { await new File(asset.uri).copy(dest); } catch {}
+    addAttachment(item.id, makeAttachmentEntry(asset.name ?? 'file', dest.exists ? dest.uri : asset.uri, asset.mimeType ?? null, asset.size ?? null));
   };
-
   const openAttachment = async (uri: string) => {
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(uri, { dialogTitle: 'Open with…' });
-    }
+    if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(uri, { dialogTitle: 'Open with…' });
   };
 
   const toggleRecording = async () => {
@@ -272,12 +162,8 @@ export default function DumpDetailScreen() {
         const dir = new Directory(Paths.document, 'dumpit-memos');
         if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
         const dest = new File(dir, `memo-${newId()}.m4a`);
-        try {
-          await new File(uri).copy(dest);
-        } catch {
-          // keep cache uri
-        }
-        addMemo(item!.id, makeMemoEntry(dest.exists ? dest.uri : uri));
+        try { await new File(uri).copy(dest); } catch {}
+        addMemo(item.id, makeMemoEntry(dest.exists ? dest.uri : uri));
       }
     } else {
       await recorder.prepareToRecordAsync();
@@ -310,15 +196,14 @@ export default function DumpDetailScreen() {
         await task.downloadAsync();
         setWhisperProgress(null);
       }
-      setTranscribing(true);
       const context = await initWhisper({ filePath: model.uri, useGpu: true });
       const { promise } = context.transcribe(memoUri, { language: 'en' });
       const result = await promise;
       const text = result.result?.trim();
       if (text) {
-        const next = (bodyDraft.trim() ? bodyDraft.trim() + '\n\n' : '') + `**REF:** ${text}`;
+        const next = (bodyDraft.trim() ? bodyDraft.trim() + '\n\n' : '') + text;
         setBodyDraft(next);
-        setBody(item!.id, next);
+        setBody(item.id, next);
       }
     } catch (error) {
       Alert.alert('Transcription failed', error instanceof Error ? error.message : String(error));
@@ -333,352 +218,262 @@ export default function DumpDetailScreen() {
     setTranslateTo(to);
     setTranslation(null);
     try {
-      const { translate, downloadModels, TranslateLanguage } = await import(
-        'react-native-mlkit-translation'
-      );
-      const lang =
-        to === 'ru' ? TranslateLanguage.RUSSIAN
-        : to === 'es' ? TranslateLanguage.SPANISH
-        : to === 'hi' ? TranslateLanguage.HINDI
-        : TranslateLanguage.FRENCH;
+      const { translate, downloadModels, TranslateLanguage } = await import('react-native-mlkit-translation');
+      const lang = to === 'ru' ? TranslateLanguage.RUSSIAN : to === 'es' ? TranslateLanguage.SPANISH : to === 'hi' ? TranslateLanguage.HINDI : TranslateLanguage.FRENCH;
       await downloadModels([lang], { wifiOnly: true });
-      const input =
-        (item!.body ?? item!.text ?? item!.title).trim().slice(0, 1200) || item!.title;
+      const input = (item.body ?? item.text ?? item.title).trim().slice(0, 1200) || item.title;
       const out = await translate({ text: input, from: TranslateLanguage.ENGLISH, to: lang });
       setTranslation(out);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Translation failed — needs model download (Wi-Fi).';
-      setTranslation(`⚠ ${message}`);
+      setTranslation(`⚠ ${error instanceof Error ? error.message : 'Translation failed — needs model download (Wi-Fi).'}`);
     } finally {
       setTranslating(false);
     }
   };
 
-  const confirmDelete = () => {
+  const startPickingReminder = (index: number) => {
+    setPickingTodo(index);
+    setPickedDate(defaultReminderDate());
+  };
+  const commitReminder = async (todoIndex: number, date: Date) => {
+    const ok = await setTodoReminder(item.id, todoIndex, date.getTime());
+    if (!ok) {
+      Alert.alert('Could not set reminder', 'Notifications blocked or scheduling failed.');
+    }
+    setPickingTodo(null);
+  };
+  const handlePickerChange = (event: DateTimePickerEvent, date?: Date) => {
+    if (event.type === 'dismissed') return setPickingTodo(null);
+    if (date) {
+      setPickedDate(date);
+      if (Platform.OS === 'android' || event.type === 'set') {
+        void commitReminder(pickingTodo ?? 0, date);
+      }
+    }
+  };
+
+  const confirmDelete = () =>
     Alert.alert('Burn this dump?', 'This removes it from your phone.', [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          removeItem(item.id);
-          router.back();
-        },
-      },
+      { text: 'Delete', style: 'destructive', onPress: () => { removeItem(item.id); router.back(); } },
     ]);
-  };
 
-  const openUrl = () => {
-    if (item.url) Linking.openURL(item.url).catch(() => {});
-  };
+  const openUrl = () => { if (item.url) Linking.openURL(item.url).catch(() => {}); };
+
+  const ai = item.ai;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['bottom']}>
-      <Stack.Screen options={{ title: 'DUMP' }} />
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.topRow}>
-          <View style={styles.badgeRow}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['bottom']}>
+      <Stack.Screen options={{ title: 'Dump' }} />
+      <Appbar.Header elevated={false} style={{ backgroundColor: theme.colors.surface }}>
+        <Appbar.BackAction onPress={() => router.back()} />
+        <Appbar.Content title="Dump" titleStyle={{ fontSize: 16, fontWeight: '600' }} />
+        <IconButton icon={item.pinned ? 'pin' : 'pin-outline'} iconColor={item.pinned ? theme.colors.primary : theme.colors.onSurfaceVariant} onPress={() => togglePin(item.id)} />
+        <IconButton icon={item.isPrivate ? 'lock' : 'lock-open-outline'} iconColor={item.isPrivate ? theme.colors.error : theme.colors.onSurfaceVariant} onPress={() => togglePrivate(item.id)} />
+      </Appbar.Header>
+
+      <ScrollView contentContainerStyle={{ padding: 14, gap: 12, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        {/* Meta row */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
             <Badge item={item} />
-            {item.ai?.status === 'done' && (
-              <View style={styles.categoryChip}>
-                <Text style={styles.categoryChipText}>{item.ai.category.toUpperCase()}</Text>
-              </View>
+            {ai?.status === 'done' && (
+              <Chip compact style={{ backgroundColor: theme.colors.secondaryContainer }} textStyle={{ color: theme.colors.onSecondaryContainer, fontSize: 10 }}>
+                {ai.category.toUpperCase()}
+              </Chip>
             )}
           </View>
-          <View style={styles.topRight}>
-            <Text style={styles.date}>{fullDate(item.createdAt)}</Text>
-            <Pressable onPress={() => togglePin(item.id)} style={[styles.pinChip, item.pinned && styles.pinChipActive]}>
-              <Text style={[styles.pinChipText, item.pinned && styles.pinChipTextActive]}>
-                {item.pinned ? 'PINNED' : 'PIN'}
-              </Text>
-            </Pressable>
-            <Pressable onPress={() => togglePrivate(item.id)} style={[styles.pinChip, item.isPrivate && styles.pinChipActive]}>
-              <Text style={[styles.pinChipText, item.isPrivate && styles.pinChipTextActive]}>
-                {item.isPrivate ? 'PRIVATE' : 'MAKE PRIVATE'}
-              </Text>
-            </Pressable>
-          </View>
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>{fullDate(item.createdAt)}</Text>
         </View>
 
+        {/* Hero image */}
         {item.kind === 'image' && item.imageUri ? (
-          <Image source={{ uri: item.imageUri }} style={styles.heroImage} contentFit="contain" />
+          <Image source={{ uri: item.imageUri }} style={{ width: '100%', aspectRatio: 4 / 5, borderRadius: 14, backgroundColor: theme.colors.surfaceVariant }} contentFit="contain" />
         ) : null}
 
+        {/* Link card */}
         {item.url ? (
-          <View style={styles.linkCard}>
-            <Text style={styles.linkHost}>{item.urlHost ?? item.url}</Text>
-            <Text style={styles.linkUrl} numberOfLines={2} selectable>
-              {item.url}
-            </Text>
-            <Pressable style={styles.openBtn} onPress={openUrl}>
-              <Text style={styles.openBtnText}>OPEN LINK →</Text>
-            </Pressable>
-          </View>
+          <Card onPress={openUrl} style={{ backgroundColor: theme.colors.surface }}>
+            <Card.Content style={{ gap: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="link" size={16} color={theme.colors.primary} />
+                <Text variant="labelMedium" style={{ color: theme.colors.primary, fontWeight: '800', flex: 1 }} numberOfLines={1}>
+                  {item.urlHost ?? item.url}
+                </Text>
+                <Ionicons name="open-outline" size={16} color={theme.colors.onSurfaceVariant} />
+              </View>
+              <Text variant="bodySmall" selectable numberOfLines={2} style={{ color: theme.colors.onSurfaceVariant }}>{item.url}</Text>
+              <Button mode="contained-tonal" compact onPress={openUrl} style={{ alignSelf: 'flex-start' }}>Open link</Button>
+            </Card.Content>
+          </Card>
         ) : null}
 
-        <Text style={styles.title}>{item.title}</Text>
-        {item.text ? (
-          <Text style={styles.body} selectable>
-            {item.text}
-          </Text>
+        {/* Title */}
+        <Text variant="headlineSmall" style={{ color: theme.colors.onSurface, fontWeight: '800', lineHeight: 30 }}>{item.title}</Text>
+        {item.text && item.kind !== 'image' ? (
+          <Text variant="bodyMedium" selectable style={{ color: theme.colors.onSurfaceVariant }}>{item.text}</Text>
         ) : null}
 
-        {/* THE ORACLE — heavier border = more importance */}
-        <View style={styles.oracleCard}>
-          <View style={styles.oracleHeader}>
-            <Text style={styles.oracleTitle}>THE ORACLE SAYS</Text>
-            {(item.ai?.status === 'analyzing' || item.ai?.status === 'pending') && aiState === 'ready' ? (
-              <ActivityIndicator size="small" color={colors.text} />
-            ) : null}
-          </View>
+        {/* The Oracle */}
+        <Card style={{ backgroundColor: ai?.status === 'done' ? theme.colors.surfaceVariant : theme.colors.surfaceVariant }}>
+          <Card.Title
+            title="The Oracle"
+            titleStyle={{ fontWeight: '800', letterSpacing: 1, fontSize: 13 }}
+            left={() => <Ionicons name="sparkles" size={18} color={theme.colors.primary} style={{ marginLeft: 16, marginTop: 14 }} />}
+            right={() => ((ai?.status === 'analyzing' || ai?.status === 'pending') && aiState === 'ready')
+              ? <ActivityIndicator size="small" style={{ marginRight: 16 }} />
+              : null}
+          />
+          <Card.Content style={{ gap: 12 }}>
+            {ai?.status === 'done' ? (
+              <>
+                <Text variant="bodyMedium" style={{ color: theme.colors.onSurface, lineHeight: 19 }}>{ai.summary}</Text>
 
-          {item.ai?.status === 'done' ? (
-            <View style={styles.oracleBody}>
-              <Text style={styles.oracleSummary}>{item.ai.summary}</Text>
+                <KnowledgeMap title={item.title} entities={ai.entities} />
 
-              <KnowledgeMap title={item.title} entities={item.ai.entities} />
-
-              {item.ai.entities.length > 0 && (
-                <View style={styles.oracleBlock}>
-                  <Text style={styles.oracleLabel}>ENTITIES</Text>
-                  <View style={styles.entityRow}>
-                    {item.ai.entities.map((entity, index) => (
-                      <View key={`${entity.type}-${entity.value}-${index}`} style={styles.entity}>
-                        <Text style={styles.entityType}>{entity.type.toUpperCase()}</Text>
-                        <Text style={styles.entityValue}>{entity.value}</Text>
-                      </View>
-                    ))}
+                {ai.entities.length > 0 && (
+                  <View style={{ gap: 6 }}>
+                    <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>Entities</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {ai.entities.map((e, i) => (
+                        <Chip key={i} compact style={{ backgroundColor: theme.colors.secondaryContainer }} textStyle={{ fontSize: 11, color: theme.colors.onSecondaryContainer }}>
+                          {e.type}: {e.value}
+                        </Chip>
+                      ))}
+                    </View>
                   </View>
-                </View>
-              )}
+                )}
 
-              {item.ai.todos.length > 0 && (
-                <View style={styles.oracleBlock}>
-                  <Text style={styles.oracleLabel}>TO-DOS</Text>
-                  {item.ai.todos.map((todo, index) => {
-                    const ai = item.ai!;
-                    const done = ai.todosDone.includes(index);
-                    const reminder = ai.reminders.find((r) => r.todoIndex === index);
-                    return (
-                      <View key={index} style={styles.todoRow}>
-                        <Pressable
-                          onPress={() => toggleTodo(item.id, index)}
-                          style={styles.todoMain}
-                          hitSlop={6}
-                        >
-                          <Text style={styles.todoBox}>{done ? '■' : '□'}</Text>
-                          <Text style={[styles.todoText, done && styles.todoTextDone]}>
+                {ai.todos.length > 0 && (
+                  <View style={{ gap: 6 }}>
+                    <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>To-dos</Text>
+                    {ai.todos.map((todo, index) => {
+                      const done = ai.todosDone.includes(index);
+                      const reminder = ai.reminders.find((r) => r.todoIndex === index);
+                      return (
+                        <View key={index} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Pressable onPress={() => toggleTodo(item.id, index)} hitSlop={6}>
+                            <Ionicons name={done ? 'checkbox' : 'square-outline'} size={20} color={done ? theme.colors.primary : theme.colors.onSurfaceVariant} />
+                          </Pressable>
+                          <Text variant="bodyMedium" style={{ flex: 1, color: done ? theme.colors.onSurfaceVariant : theme.colors.onSurface, textDecorationLine: done ? 'line-through' : 'none' }} numberOfLines={2}>
                             {todo}
                           </Text>
-                        </Pressable>
-                        <View style={styles.todoActions}>
                           {reminder ? (
-                            <Text style={styles.reminderAt}>
-                              {formatShortDateTime(reminder.at)}
-                            </Text>
+                            <Pressable onPress={() => clearTodoReminder(item.id, index)} style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: theme.colors.tertiaryContainer }}>
+                              <Text style={{ fontSize: 9, color: theme.colors.onTertiaryContainer }}>{formatShortDateTime(reminder.at)}</Text>
+                            </Pressable>
                           ) : null}
-                          <Pressable
-                            style={[styles.remindChip, reminder && styles.remindChipActive]}
-                            onPress={() =>
-                              reminder
-                                ? clearTodoReminder(item.id, index)
-                                : startPickingReminder(index)
-                            }
-                          >
-                            <Text
-                              style={[
-                                styles.remindChipText,
-                                reminder && styles.remindChipTextActive,
-                              ]}
-                            >
-                              {reminder ? 'CANCEL' : 'REMIND'}
-                            </Text>
-                          </Pressable>
+                          <IconButton icon="alarm" size={16} onPress={() => startPickingReminder(index)} />
                         </View>
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
+                      );
+                    })}
+                  </View>
+                )}
 
-              {item.ai.links.length > 0 && (
-                <View style={styles.oracleBlock}>
-                  <Text style={styles.oracleLabel}>LINKS FOUND</Text>
-                  {item.ai.links.map((link, index) => (
-                    <Text key={index} style={styles.oracleLink} selectable>
-                      {link}
+                {ai.links.length > 0 && (
+                  <View style={{ gap: 4 }}>
+                    <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>Links found</Text>
+                    {ai.links.map((link, i) => (
+                      <Text key={i} variant="bodySmall" selectable style={{ color: theme.colors.primary }}>{link}</Text>
+                    ))}
+                  </View>
+                )}
+
+                {ai.sources.length > 0 && (
+                  <View style={{ gap: 4 }}>
+                    <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>Agent visited</Text>
+                    {ai.sources.map((s, i) => (
+                      <Text key={i} variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>{String(i + 1).padStart(2, '0')} — {s}</Text>
+                    ))}
+                  </View>
+                )}
+
+                {ai.pageText ? (
+                  <View style={{ gap: 4 }}>
+                    <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>Page content</Text>
+                    <Text variant="bodySmall" selectable style={{ color: theme.colors.onSurfaceVariant, fontFamily: 'monospace', fontSize: 10, lineHeight: 15 }}>
+                      {ai.pageText}
                     </Text>
-                  ))}
-                </View>
-              )}
+                  </View>
+                ) : null}
 
-              {pickingTodo !== null && (
-                <DateTimePicker
-                  value={pickedDate}
-                  mode="datetime"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  onChange={handlePickerChange}
-                />
-              )}
-
-              {item.ai.sources.length > 0 && (
-                <View style={styles.oracleBlock}>
-                  <Text style={styles.oracleLabel}>AGENT VISITED</Text>
-                  {item.ai.sources.map((source, index) => (
-                    <Text key={index} style={styles.sourceLine}>
-                      {String(index + 1).padStart(2, '0')} — {source}
+                {ai.ocrText ? (
+                  <View style={{ gap: 4 }}>
+                    <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>Screenshot text (OCR)</Text>
+                    <Text variant="bodySmall" selectable style={{ color: theme.colors.onSurfaceVariant, fontFamily: 'monospace', fontSize: 10, lineHeight: 15 }}>
+                      {ai.ocrText}
                     </Text>
-                  ))}
-                </View>
-              )}
-
-              {item.ai.pageText ? (
-                <View style={styles.oracleBlock}>
-                  <Text style={styles.oracleLabel}>PAGE CONTENT (FROM THE LINK)</Text>
-                  <Text style={styles.ocrText} selectable>
-                    {item.ai.pageText}
-                  </Text>
-                </View>
-              ) : null}
-
-              {item.ai.ocrText ? (
-                <View style={styles.oracleBlock}>
-                  <Text style={styles.oracleLabel}>SCREENSHOT TEXT (OCR)</Text>
-                  <Text style={styles.ocrText} selectable>
-                    {item.ai.ocrText}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          ) : item.ai?.status === 'error' ? (
-            <View style={styles.oracleBody}>
-              <Text style={styles.oracleError}>THE ORACLE STUMBLED: {item.ai.error}</Text>
-              <Pressable style={styles.retryBtn} onPress={() => retryAiAnalysis(item.id)}>
-                <Text style={styles.retryText}>ASK AGAIN</Text>
-              </Pressable>
-            </View>
-          ) : aiState !== 'ready' ? (
-            <View style={styles.oracleBody}>
-              <Text style={styles.oracleHint}>
-                WAITING FOR THE ORACLE. Download the on-device models from the inbox banner —
-                no cloud, no tokens. This dump gets read automatically.
+                  </View>
+                ) : null}
+              </>
+            ) : ai?.status === 'error' ? (
+              <View style={{ gap: 10 }}>
+                <Text variant="bodySmall" style={{ color: theme.colors.error }}>{ai.error}</Text>
+                <Button mode="outlined" compact onPress={() => retryAiAnalysis(item.id)}>Ask again</Button>
+              </View>
+            ) : aiState !== 'ready' ? (
+              <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+                Waiting for on-device AI — the models have not downloaded yet (see the inbox banner).
               </Text>
-            </View>
-          ) : (
-            <View style={styles.oracleBody}>
-              <Text style={styles.oracleHint}>THE ORACLE IS READING THIS DUMP…</Text>
-            </View>
-          )}
-        </View>
+            ) : (
+              <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+                The oracle is reading this dump…
+              </Text>
+            )}
+          </Card.Content>
+        </Card>
+
+        {pickingTodo !== null && (
+          <DateTimePicker value={pickedDate} mode="datetime" display={Platform.OS === 'ios' ? 'spinner' : 'default'} onChange={handlePickerChange} />
+        )}
 
         {/* Note */}
-        <Text style={styles.sectionLabel}>NOTE</Text>
+        <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, fontWeight: '700' }}>NOTE</Text>
         <TextInput
           value={noteDraft}
           onChangeText={setNoteDraft}
-          onBlur={() => {
-            setNoteFocused(false);
-            commitNote();
-          }}
-          onFocus={() => setNoteFocused(true)}
-          placeholder="WHAT DOES THIS ONE MEAN?"
-          placeholderTextColor={colors.faint}
-          style={[styles.noteInput, noteFocused && styles.inputFocused]}
+          onBlur={commitNote}
+          placeholder="What does this one mean?"
           multiline
-          textAlignVertical="top"
+          mode="outlined"
+          style={{ backgroundColor: theme.colors.surface }}
         />
 
         {/* Tags */}
-        <Text style={styles.sectionLabel}>TAGS</Text>
+        <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, fontWeight: '700' }}>TAGS</Text>
         <TextInput
           value={tagsDraft}
           onChangeText={setTagsDraft}
-          onBlur={() => {
-            setTagsFocused(false);
-            commitTags();
-          }}
-          onFocus={() => setTagsFocused(true)}
+          onBlur={commitTags}
           placeholder="ai, reading, work"
-          placeholderTextColor={colors.faint}
-          style={[styles.tagsInput, tagsFocused && styles.inputFocused]}
           autoCapitalize="none"
           autoCorrect={false}
+          mode="outlined"
+          dense
+          style={{ backgroundColor: theme.colors.surface }}
         />
         {item.tags.length > 0 && (
-          <View style={styles.tagRow}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
             {item.tags.map((tag) => (
-              <View key={tag} style={styles.tag}>
-                <Text style={styles.tagText}>#{tag}</Text>
-              </View>
+              <Chip key={tag} compact style={{ backgroundColor: theme.colors.surfaceVariant }} textStyle={{ fontSize: 11 }}>#{tag}</Chip>
             ))}
           </View>
         )}
 
-        {/* Blocks / folders */}
-        <Text style={styles.sectionLabel}>BLOCK</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.folderPickRow}>
-          <Pressable
-            onPress={() => assignFolder(item.id, null)}
-            style={[styles.folderChip, item.folderId === null && styles.folderChipActive]}
-          >
-            <View style={[styles.folderDot, { backgroundColor: colors.bg }]} />
-            <Text style={styles.folderChipText}>NONE</Text>
-          </Pressable>
-          {folders.map((folder) => {
-            const active = item.folderId === folder.id;
-            return (
-              <Pressable
-                key={folder.id}
-                onPress={() => assignFolder(item.id, folder.id)}
-                style={[styles.folderChip, active && styles.folderChipActive]}
-              >
-                <View style={[styles.folderDot, { backgroundColor: folder.color }]} />
-                <Text style={styles.folderChipText} numberOfLines={1}>
-                  {folder.name.toUpperCase()}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-
-        {/* Kanban state */}
-        <Text style={styles.sectionLabel}>BOARD</Text>
-        <View style={styles.kanbanRow}>
-          {(['todo', 'doing', 'done'] as const).map((state) => {
-            const active = item.kanbanState === state;
-            return (
-              <Pressable
-                key={state}
-                onPress={() => setKanbanState(item.id, state)}
-                style={[styles.kanbanChip, active && styles.kanbanChipActive]}
-              >
-                <Text style={styles.kanbanChipText}>{state.toUpperCase()}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* Rich body (markdown) */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionLabel}>BODY — MARKDOWN</Text>
-          <Pressable onPress={() => setBodyEditing((v) => !v)} style={styles.smallBtn}>
-            <Text style={styles.smallBtnText}>{bodyEditing ? 'PREVIEW' : 'EDIT'}</Text>
-          </Pressable>
+        {/* Markdown body */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, fontWeight: '700' }}>BODY</Text>
+          <Button compact mode="text" onPress={() => setBodyEditing((v) => !v)}>
+            {bodyEditing ? 'Preview' : 'Edit'}
+          </Button>
         </View>
         {bodyEditing ? (
           <>
-            <View style={styles.toolbar}>
-              {['## ', '**', '*', '- ', '[ ] ', '> ', '`'].map((token) => (
-                <Pressable
-                  key={token}
-                  style={styles.toolChip}
-                  onPress={() => setBodyDraft((prev) => prev + token)}
-                >
-                  <Text style={styles.toolChipText}>
-                    {token === '## ' ? 'H' : token === '- ' ? 'LIST' : token === '[ ] ' ? 'TODO' : token === '> ' ? 'QUOTE' : token === '`' ? 'CODE' : token}
-                  </Text>
-                </Pressable>
+            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+              {['## ', '**', '*', '- ', '[ ] ', '> ', '`'].map((t) => (
+                <Chip key={t} compact onPress={() => setBodyDraft((p) => p + t)}>
+                  {t === '## ' ? 'H' : t === '- ' ? 'List' : t === '[ ] ' ? 'Todo' : t === '> ' ? 'Quote' : t === '`' ? 'Code' : t}
+                </Chip>
               ))}
             </View>
             <TextInput
@@ -686,59 +481,71 @@ export default function DumpDetailScreen() {
               onChangeText={setBodyDraft}
               onBlur={commitBody}
               placeholder="Write the note here — markdown supported."
-              placeholderTextColor={colors.faint}
-              style={styles.bodyInput}
               multiline
-              textAlignVertical="top"
+              mode="outlined"
+              style={{ minHeight: 160, backgroundColor: theme.colors.surface, fontFamily: 'monospace' }}
             />
           </>
         ) : (
-          <View style={styles.bodyPreview}>
-            <Markdown style={markdownStyle}>{bodyDraft.trim() || '_Nothing yet. Tap EDIT._'}</Markdown>
-          </View>
+          <Surface style={{ padding: 12, borderRadius: 14, backgroundColor: theme.colors.surface }}>
+            <Markdown style={markdownStyle}>{bodyDraft.trim() || '_Nothing yet. Tap Edit._'}</Markdown>
+          </Surface>
         )}
 
+        {/* Blocks + board */}
+        <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, fontWeight: '700' }}>BLOCK</Text>
+        <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+          <Chip compact selected={item.folderId === null} showSelectedOverlay={false} onPress={() => assignFolder(item.id, null)}>None</Chip>
+          {folders.map((f) => (
+            <Chip
+              key={f.id}
+              compact
+              selected={item.folderId === f.id}
+              showSelectedOverlay={false}
+              onPress={() => assignFolder(item.id, f.id)}
+              avatar={<View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: f.color }} />}
+            >
+              {f.name}
+            </Chip>
+          ))}
+        </View>
+
+        <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, fontWeight: '700' }}>BOARD</Text>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {(['todo', 'doing', 'done'] as const).map((state) => (
+            <Chip key={state} compact mode={item.kanbanState === state ? 'flat' : 'outlined'} showSelectedOverlay={false} selected={item.kanbanState === state} onPress={() => setKanbanState(item.id, state)}>
+              {state === 'todo' ? 'To do' : state === 'doing' ? 'Doing' : 'Done'}
+            </Chip>
+          ))}
+        </View>
+
         {/* Attachments */}
-        <Text style={styles.sectionLabel}>ATTACHMENTS</Text>
-        {item.attachments.map((attachment) => (
-          <View key={attachment.id} style={styles.attachmentRow}>
-            <Pressable style={styles.attachmentMain} onPress={() => openAttachment(attachment.uri)}>
-              <Text style={styles.attachmentName} numberOfLines={1}>
-                {attachment.name.toUpperCase()}
-              </Text>
-              {attachment.size != null && (
-                <Text style={styles.attachmentSize}>{Math.round(attachment.size / 1024)} KB</Text>
-              )}
+        <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, fontWeight: '700' }}>ATTACHMENTS</Text>
+        {item.attachments.map((a) => (
+          <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.surface, borderRadius: 12, padding: 10 }}>
+            <Ionicons name="document-attach-outline" size={20} color={theme.colors.onSurfaceVariant} />
+            <Pressable style={{ flex: 1 }} onPress={() => openAttachment(a.uri)}>
+              <Text variant="bodyMedium" numberOfLines={1} style={{ color: theme.colors.onSurface }}>{a.name}</Text>
             </Pressable>
-            <Pressable onPress={() => removeAttachment(item.id, attachment.id)} style={styles.smallBtn}>
-              <Text style={styles.smallBtnText}>DEL</Text>
-            </Pressable>
+            <IconButton icon="close" size={16} onPress={() => removeAttachment(item.id, a.id)} />
           </View>
         ))}
-        <Pressable style={styles.btnGhost} onPress={attachFile}>
-          <Text style={styles.btnGhostText}>+ ATTACH FILE (PDF / TXT)</Text>
-        </Pressable>
+        <Button mode="outlined" icon="paperclip" onPress={attachFile}>Attach file</Button>
 
-        {/* Voice memos + dictation */}
-        <Text style={styles.sectionLabel}>VOICE MEMO</Text>
-        <View style={styles.memoControls}>
-          <Pressable
-            style={[styles.recordBtn, recorderState.isRecording && styles.recordBtnActive]}
+        {/* Voice memos */}
+        <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, fontWeight: '700' }}>VOICE MEMOS</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <Button
+            mode={recorderState.isRecording ? 'contained' : 'contained-tonal'}
+            icon={recorderState.isRecording ? 'stop' : 'microphone'}
             onPress={toggleRecording}
           >
-            <Text style={[styles.recordBtnText, recorderState.isRecording && styles.recordBtnTextActive]}>
-              {recorderState.isRecording ? '■ STOP' : '● RECORD'}
-            </Text>
-          </Pressable>
+            {recorderState.isRecording ? 'Stop' : 'Record'}
+          </Button>
           {whisperProgress !== null && (
-            <View style={styles.whisperProgress}>
-              <Text style={styles.whisperProgressText}>
-                WHISPER {Math.round(whisperProgress * 100)}%
-              </Text>
-              <View style={styles.whisperBar}>
-                <View style={[styles.whisperFill, { width: `${Math.round(whisperProgress * 100)}%` }]} />
-              </View>
-            </View>
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+              Whisper {Math.round(whisperProgress * 100)}%
+            </Text>
           )}
         </View>
         {item.memos.map((memo) => (
@@ -751,679 +558,79 @@ export default function DumpDetailScreen() {
           />
         ))}
 
-        {/* Translate (on-device) */}
-        <Text style={styles.sectionLabel}>TRANSLATE (ON-DEVICE)</Text>
-        <View style={styles.translateRow}>
+        {/* Translation */}
+        <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, fontWeight: '700' }}>TRANSLATE (ON-DEVICE)</Text>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
           {(['ru', 'es', 'hi', 'fr'] as const).map((lang) => (
-            <Pressable
-              key={lang}
-              style={[styles.translateChip, translateTo === lang && styles.translateChipActive]}
-              onPress={() => translate(lang)}
-            >
-              <Text style={styles.translateChipText}>
-                {lang === 'ru' ? 'RUS' : lang === 'es' ? 'SPA' : lang === 'hi' ? 'HIN' : 'FRA'}
-              </Text>
-            </Pressable>
+            <Chip key={lang} compact selected={translateTo === lang} showSelectedOverlay={false} onPress={() => translate(lang)}>
+              {lang.toUpperCase()}
+            </Chip>
           ))}
         </View>
-        {translating && <Text style={styles.translating}>TRANSLATING… (first call downloads the model)</Text>}
+        {translating && <ActivityIndicator size="small" />}
         {translation && (
-          <Text style={styles.translationBox} selectable>
-            {translation}
-          </Text>
+          <Surface style={{ padding: 10, borderRadius: 12, backgroundColor: theme.colors.surface }}>
+            <Text variant="bodyMedium" selectable style={{ color: theme.colors.onSurface }}>{translation}</Text>
+          </Surface>
         )}
 
-        <Text style={styles.source}>{SOURCE_LABEL[item.source] ?? item.source}</Text>
-        <Pressable style={styles.deleteBtn} onPress={confirmDelete}>
-          <Text style={styles.deleteText}>BURN THIS DUMP</Text>
-        </Pressable>
+        {/* Danger zone */}
+        <Divider style={{ marginVertical: 4 }} />
+        <Text variant="bodySmall" style={{ color: theme.colors.outline }}>{sourceLabel(item.source)}</Text>
+        <Button mode="contained" icon="fire" buttonColor={theme.colors.errorContainer} textColor={theme.colors.onErrorContainer} onPress={confirmDelete}>
+          Burn this dump
+        </Button>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  content: {
-    padding: 20,
-    paddingBottom: 44,
-    gap: 14,
-  },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  topRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  categoryChip: {
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  categoryChipText: {
-    fontFamily: fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1.5,
-    color: colors.text,
-  },
-  pinChip: {
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-  },
-  pinChipActive: {
-    backgroundColor: colors.accent,
-  },
-  pinChipText: {
-    fontFamily: fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1.5,
-    color: colors.text,
-  },
-  pinChipTextActive: {
-    color: colors.ink,
-  },
-  todoTextDone: {
-    textDecorationLine: 'line-through',
-    color: colors.faint,
-  },
-  date: {
-    fontFamily: fonts.mono,
-    color: colors.faint,
-    fontSize: 11,
-  },
-  heroImage: {
-    width: '100%',
-    aspectRatio: 4 / 5,
-    backgroundColor: colors.sunken,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-  },
-  linkCard: {
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
-    padding: 12,
-    gap: 8,
-  },
-  linkHost: {
-    fontFamily: fonts.mono,
-    color: colors.blue,
-    fontSize: 12,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    textDecorationLine: 'underline',
-  },
-  linkUrl: {
-    fontFamily: fonts.mono,
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  openBtn: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.accent,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-  },
-  openBtnText: {
-    fontFamily: fonts.label,
-    color: colors.ink,
-    fontSize: 11,
-    letterSpacing: 1.5,
-  },
-  title: {
-    fontFamily: fonts.display,
-    color: colors.text,
-    fontSize: 19,
-    lineHeight: 24,
-  },
-  body: {
-    fontFamily: fonts.body,
-    color: colors.muted,
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  oracleCard: {
-    backgroundColor: colors.bg,
-    borderWidth: borders.heavy,
-    borderColor: colors.border,
-    padding: 14,
-    gap: 12,
-  },
-  oracleHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottomWidth: borders.base,
-    borderBottomColor: colors.border,
-    paddingBottom: 10,
-  },
-  oracleTitle: {
-    fontFamily: fonts.display,
-    color: colors.text,
-    fontSize: 13,
-    letterSpacing: 2,
-  },
-  oracleBody: {
-    gap: 12,
-  },
-  oracleSummary: {
-    fontFamily: fonts.bodySemi,
-    color: colors.text,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  oracleBlock: {
-    gap: 6,
-  },
-  oracleLabel: {
-    fontFamily: fonts.label,
-    color: colors.faint,
-    fontSize: 9,
-    letterSpacing: 2,
-  },
-  entityRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  entity: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  entityType: {
-    fontFamily: fonts.mono,
-    color: colors.faint,
-    fontSize: 8,
-    letterSpacing: 1,
-  },
-  entityValue: {
-    fontFamily: fonts.bodyMedium,
-    color: colors.text,
-    fontSize: 11,
-  },
-  todoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    justifyContent: 'space-between',
-  },
-  todoMain: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    flex: 1,
-  },
-  todoActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  reminderAt: {
-    fontFamily: fonts.mono,
-    fontSize: 9,
-    letterSpacing: 0.5,
-    color: colors.muted,
-  },
-  remindChip: {
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-  },
-  remindChipActive: {
-    backgroundColor: colors.accent,
-  },
-  remindChipText: {
-    fontFamily: fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1,
-    color: colors.text,
-  },
-  remindChipTextActive: {
-    color: colors.ink,
-  },
-  todoBox: {
-    fontFamily: fonts.body,
-    fontSize: 16,
-    color: colors.text,
-    lineHeight: 20,
-  },
-  todoText: {
-    flex: 1,
-    fontFamily: fonts.body,
-    color: colors.text,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  oracleLink: {
-    fontFamily: fonts.mono,
-    color: colors.blue,
-    fontSize: 10,
-    lineHeight: 16,
-    textDecorationLine: 'underline',
-  },
-  sourceLine: {
-    fontFamily: fonts.mono,
-    color: colors.muted,
-    fontSize: 10,
-    lineHeight: 16,
-  },
-  ocrText: {
-    fontFamily: fonts.mono,
-    color: colors.muted,
-    fontSize: 10,
-    lineHeight: 15,
-    backgroundColor: colors.sunken,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    padding: 10,
-  },
-  oracleError: {
-    fontFamily: fonts.body,
-    color: colors.error,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  oracleHint: {
-    fontFamily: fonts.body,
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  retryBtn: {
-    alignSelf: 'flex-start',
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-  },
-  retryText: {
-    fontFamily: fonts.label,
-    color: colors.text,
-    fontSize: 11,
-    letterSpacing: 1.5,
-  },
-  sectionLabel: {
-    fontFamily: fonts.label,
-    color: colors.text,
-    fontSize: 11,
-    letterSpacing: 2,
-    marginTop: 2,
-  },
-  noteInput: {
-    fontFamily: fonts.mono,
-    color: colors.text,
-    fontSize: 12,
-    lineHeight: 17,
-    backgroundColor: colors.sunken,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    padding: 12,
-    minHeight: 88,
-  },
-  tagsInput: {
-    fontFamily: fonts.mono,
-    color: colors.text,
-    fontSize: 12,
-    backgroundColor: colors.sunken,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    paddingHorizontal: 12,
-    height: 46,
-  },
-  inputFocused: {
-    borderWidth: borders.heavy,
-    padding: 10,
-  },
-  tagRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  tag: {
-    backgroundColor: colors.sunken,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  tagText: {
-    fontFamily: fonts.mono,
-    color: colors.muted,
-    fontSize: 11,
-  },
-  source: {
-    fontFamily: fonts.mono,
-    color: colors.faint,
-    fontSize: 10,
-    letterSpacing: 1,
-    marginTop: 2,
-  },
-  deleteBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 50,
-    backgroundColor: colors.error,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    marginTop: 6,
-  },
-  deleteText: {
-    fontFamily: fonts.label,
-    color: colors.ink,
-    fontSize: 12,
-    letterSpacing: 2,
-  },
-  missing: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    paddingHorizontal: 40,
-  },
-  missingTitle: {
-    fontFamily: fonts.display,
-    color: colors.text,
-    fontSize: 22,
-    letterSpacing: 2,
-  },
-  missingBody: {
-    fontFamily: fonts.body,
-    color: colors.muted,
-    fontSize: 14,
-  },
-  missingBtn: {
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-  },
-  missingBtnText: {
-    fontFamily: fonts.label,
-    color: colors.text,
-    fontSize: 11,
-    letterSpacing: 2,
-  },
-  memoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    padding: 8,
-  },
-  memoPlayBtn: {
-    backgroundColor: colors.accent,
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-  },
-  memoPlayText: {
-    fontFamily: fonts.label,
-    color: colors.ink,
-    fontSize: 10,
-    letterSpacing: 1.5,
-  },
-  memoTranscribeBtn: {
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    flex: 1,
-    alignItems: 'center',
-  },
-  memoTranscribeText: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1,
-    color: colors.text,
-  },
-  memoDeleteBtn: {
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-  },
-  memoDeleteText: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    color: colors.text,
-  },
-  recordBtn: {
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    alignSelf: 'flex-start',
-  },
-  recordBtnActive: {
-    backgroundColor: colors.error,
-    borderColor: colors.error,
-  },
-  recordBtnText: {
-    fontFamily: fonts.label,
-    color: colors.text,
-    fontSize: 12,
-    letterSpacing: 2,
-  },
-  recordBtnTextActive: {
-    color: colors.ink,
-  },
-  memoControls: {
-    gap: 8,
-  },
-  whisperProgress: {
-    gap: 4,
-  },
-  whisperProgressText: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1,
-    color: colors.muted,
-  },
-  whisperBar: {
-    height: 14,
-    backgroundColor: colors.sunken,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-  },
-  whisperFill: {
-    height: '100%',
-    backgroundColor: colors.accent,
-  },
-  translateRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  translateChip: {
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  translateChipActive: {
-    backgroundColor: colors.accent,
-  },
-  translateChipText: {
-    fontFamily: fonts.label,
-    color: colors.text,
-    fontSize: 11,
-    letterSpacing: 2,
-  },
-  translating: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    color: colors.muted,
-    letterSpacing: 0.5,
-  },
-  translationBox: {
-    fontFamily: fonts.body,
-    color: colors.text,
-    fontSize: 13,
-    lineHeight: 19,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    backgroundColor: colors.sunken,
-    padding: 10,
-  },
-  folderPickRow: {
-    gap: 8,
-    paddingVertical: 2,
-  },
-  folderChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-  },
-  folderChipActive: {
-    backgroundColor: colors.accent,
-  },
-  folderDot: {
-    width: 12,
-    height: 12,
-    borderWidth: borders.thin,
-    borderColor: colors.border,
-  },
-  folderChipText: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1,
-    color: colors.text,
-    flexShrink: 1,
-  },
-  kanbanRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  kanbanChip: {
-    flex: 1,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    paddingVertical: 8,
-    alignItems: 'center',
-    backgroundColor: colors.bg,
-  },
-  kanbanChipActive: {
-    backgroundColor: colors.accent,
-  },
-  kanbanChipText: {
-    fontFamily: fonts.label,
-    fontSize: 10,
-    letterSpacing: 2,
-    color: colors.text,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  smallBtn: {
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  smallBtnText: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1,
-    color: colors.text,
-  },
-  toolbar: {
-    flexDirection: 'row',
-    gap: 6,
-    flexWrap: 'wrap',
-  },
-  toolChip: {
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    backgroundColor: colors.sunken,
-  },
-  toolChipText: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    color: colors.text,
-  },
-  bodyInput: {
-    fontFamily: fonts.mono,
-    fontSize: 13,
-    lineHeight: 19,
-    color: colors.text,
-    backgroundColor: colors.sunken,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    padding: 12,
-    minHeight: 140,
-  },
-  bodyPreview: {
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
-    padding: 12,
-    minHeight: 100,
-  },
-  attachmentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    padding: 8,
-  },
-  attachmentMain: {
-    flex: 1,
-    gap: 2,
-  },
-  attachmentName: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    letterSpacing: 0.5,
-    color: colors.text,
-  },
-  attachmentSize: {
-    fontFamily: fonts.mono,
-    fontSize: 9,
-    color: colors.faint,
-  },
-  btnGhost: {
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    borderStyle: 'dashed',
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  btnGhostText: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 1,
-    color: colors.muted,
-  },
-});
+function sourceLabel(source: string) {
+  return source === 'share' ? 'Claimed from the share sheet' : source === 'manual' ? 'Added by hand' : 'Sample / simulated share';
+}
+
+function MemoRow({
+  uri,
+  onDelete,
+  onTranscribe,
+  transcribing,
+}: {
+  uri: string;
+  onDelete: () => void;
+  onTranscribe: () => void;
+  transcribing: boolean;
+}) {
+  const theme = useTheme();
+  const player = useAudioPlayer(uri);
+  const [playing, setPlaying] = useState(false);
+
+  useEffect(() => {
+    const sub = player.addListener('playbackStatusUpdate', (status) => {
+      if (status.didJustFinish) {
+        setPlaying(false);
+        player.seekTo(0);
+      }
+    });
+    return () => sub.remove();
+  }, [player]);
+
+  return (
+    <Surface style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.surface, borderRadius: 12, padding: 8 }}>
+      <IconButton
+        icon={playing ? 'pause' : 'play'}
+        mode="contained-tonal"
+        size={18}
+        onPress={() => {
+          if (playing) { player.pause(); setPlaying(false); } else { player.play(); setPlaying(true); }
+        }}
+      />
+      <Pressable onPress={onTranscribe} disabled={transcribing} style={{ flex: 1 }}>
+        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+          {transcribing ? 'Transcribing…' : 'Tap to transcribe → body'}
+        </Text>
+      </Pressable>
+      <IconButton icon="delete-outline" size={18} onPress={onDelete} />
+    </Surface>
+  );
+}
+

@@ -1,39 +1,18 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 
-import { badgeFor, borders, colors, fonts } from '@/lib/theme';
+import { badgeFor } from '@/lib/theme';
 import type { DumpItem } from '@/lib/types';
 
+/** Small tonal chip used on every card — one color per dump type. */
 export default function Badge({ item }: { item: DumpItem }) {
+  const theme = useTheme();
   const meta = badgeFor(item);
+  const c = meta.tone === 'accent' ? theme.colors.primaryContainer : theme.colors.secondaryContainer;
+  const on = meta.tone === 'accent' ? theme.colors.onPrimaryContainer : theme.colors.onSecondaryContainer;
   return (
-    <View style={[styles.badge, meta.inverted && styles.inverted]}>
-      <Text style={[styles.label, meta.inverted && styles.labelInverted]}>{meta.label}</Text>
+    <View style={{ alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: c }}>
+      <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 1, color: on }}>{meta.label}</Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
-    alignSelf: 'flex-start',
-    borderRadius: 0,
-  },
-  inverted: {
-    backgroundColor: colors.accent,
-  },
-  label: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1.5,
-    color: colors.text,
-  },
-  labelInverted: {
-    color: colors.ink,
-  },
-});

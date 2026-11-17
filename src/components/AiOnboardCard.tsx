@@ -1,126 +1,72 @@
-import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import { View } from 'react-native';
+import { ActivityIndicator, Button, Card, ProgressBar, Text as PaperText, useTheme } from 'react-native-paper';
+import { Ionicons } from '@expo/vector-icons';
 
 import { useDumpStore } from '@/lib/dump-store';
 import { TOTAL_MODEL_BYTES } from '@/lib/ai-models';
-import { borders, colors, fonts } from '@/lib/theme';
 
-/** RawBlock onboarding for the on-device Oracle. Hidden once models are ready. */
+/** Purple-free, server-free: on-device Oracle onboarding. */
 export default function AiOnboardCard() {
+  const theme = useTheme();
   const { aiState, aiProgress, enableAiDownload, items } = useDumpStore();
 
   if (aiState === 'ready') return null;
 
   const analyzing = items.filter((item) => item.ai?.status === 'analyzing').length;
+  const totalMb = Math.round(TOTAL_MODEL_BYTES / 1024 / 1024);
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.title}>THE ORACLE</Text>
-      {aiState === 'unavailable' ? (
-        <>
-          <Text style={styles.body}>
-            On-device AI needs a development build. Run npx expo run:android once — after that
-            everything works offline.
-          </Text>
-        </>
-      ) : aiState === 'downloading' ? (
-        <>
-          <Text style={styles.body}>
-            {aiProgress
-              ? `${aiProgress.stage === 'llm' ? 'Qwen2.5-0.5B' : 'nomic-embed'} — ${Math.round(
-                  (aiProgress.receivedBytes / aiProgress.totalBytes) * 100
-                )}% of ~${Math.round(TOTAL_MODEL_BYTES / 1024 / 1024)} MB`
-              : 'PREPARING DOWNLOAD'}
-          </Text>
-          <View style={styles.barTrack}>
-            <View
-              style={[
-                styles.barFill,
-                {
-                  width: `${Math.round(
-                    ((aiProgress?.receivedBytes ?? 0) / TOTAL_MODEL_BYTES) * 100
-                  )}%`,
-                },
-              ]}
+    <Card mode="elevated" style={{ backgroundColor: theme.colors.secondaryContainer, marginHorizontal: 0, marginBottom: 8 }}>
+      <Card.Content style={{ gap: 8, paddingVertical: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Ionicons name="sparkles" size={18} color={theme.colors.onSecondaryContainer} />
+          <PaperText variant="titleSmall" style={{ color: theme.colors.onSecondaryContainer, fontWeight: '700' }}>
+            The Oracle — on-device AI
+          </PaperText>
+        </View>
+
+        {aiState === 'unavailable' ? (
+          <PaperText variant="bodySmall" style={{ color: theme.colors.onSecondaryContainer }}>
+            On-device AI cannot run inside Expo Go. Build once with{' '}
+            <PaperText variant="bodySmall" style={{ fontFamily: 'monospace', color: theme.colors.onSecondaryContainer }}>
+              npx expo run:android
+            </PaperText>{' '}
+            and everything works offline.
+          </PaperText>
+        ) : aiState === 'downloading' ? (
+          <>
+            <PaperText variant="bodySmall" style={{ color: theme.colors.onSecondaryContainer }}>
+              {aiProgress
+                ? `${aiProgress.stage === 'llm' ? 'Qwen2.5-0.5B' : 'nomic-embed'} — ${Math.round(
+                    (aiProgress.receivedBytes / aiProgress.totalBytes) * 100
+                  )}% of ~${totalMb} MB`
+                : 'Preparing download…'}
+            </PaperText>
+            <ProgressBar
+              progress={aiProgress ? aiProgress.receivedBytes / aiProgress.totalBytes : 0}
+              color={theme.colors.onSecondaryContainer}
             />
-          </View>
-          {analyzing > 0 && (
-            <View style={styles.footRow}>
-              <ActivityIndicator size="small" color={colors.text} />
-              <Text style={styles.footText}>QUEUE RUNS ONCE MODELS LAND</Text>
-            </View>
-          )}
-        </>
-      ) : (
-        <>
-          <Text style={styles.body}>
-            One-time ~{Math.round(TOTAL_MODEL_BYTES / 1024 / 1024)} MB download (Wi-Fi, then fully
-            offline). Qwen2.5-0.5B summarizes and extracts; nomic-embed powers meaning search.
-          </Text>
-          <Pressable style={styles.cta} onPress={enableAiDownload}>
-            <Text style={styles.ctaText}>DOWNLOAD BOTH MODELS →</Text>
-          </Pressable>
-        </>
-      )}
-    </View>
+            {analyzing > 0 && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ActivityIndicator size="small" color={theme.colors.onSecondaryContainer} />
+                <PaperText variant="bodySmall" style={{ color: theme.colors.onSecondaryContainer }}>
+                  {analyzing} item{analyzing === 1 ? '' : 's'} analyze themselves once the models land
+                </PaperText>
+              </View>
+            )}
+          </>
+        ) : (
+          <>
+            <PaperText variant="bodySmall" style={{ color: theme.colors.onSecondaryContainer }}>
+              One-time ~{totalMb} MB download (Wi-Fi, then fully offline). Qwen2.5-0.5B summarizes
+              and extracts; nomic-embed powers meaning search.
+            </PaperText>
+            <Button mode="contained" onPress={enableAiDownload} icon="download-outline">
+              Download both models
+            </Button>
+          </>
+        )}
+      </Card.Content>
+    </Card>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    backgroundColor: colors.card,
-    borderWidth: borders.heavy,
-    borderColor: colors.border,
-    borderRadius: 0,
-    padding: 16,
-    gap: 10,
-  },
-  title: {
-    fontFamily: fonts.display,
-    fontSize: 22,
-    letterSpacing: 2,
-    color: colors.text,
-  },
-  body: {
-    fontFamily: fonts.body,
-    color: colors.muted,
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  barTrack: {
-    height: 22,
-    backgroundColor: colors.sunken,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-  },
-  barFill: {
-    height: '100%',
-    backgroundColor: colors.accent,
-  },
-  cta: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.accent,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-  },
-  ctaText: {
-    fontFamily: fonts.label,
-    color: colors.ink,
-    fontSize: 12,
-    letterSpacing: 2,
-  },
-  footRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  footText: {
-    fontFamily: fonts.mono,
-    color: colors.muted,
-    fontSize: 11,
-    letterSpacing: 1,
-  },
-});

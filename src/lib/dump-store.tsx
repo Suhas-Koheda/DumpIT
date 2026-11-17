@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 
 import { detectPlatform, extractUrl, hostOf, makeId, readableBlurb } from './classify';
+import type { ThemeMode } from './themes';
 import { deleteStoredImage, storeImage } from './images';
 import {
   cancelReminder,
@@ -29,6 +30,7 @@ import type { DumpItem, DumpAi, Folder } from './types';
 
 const STORAGE_KEY = 'dumpit.items.v1';
 const FOLDERS_KEY = 'dumpit.folders.v1';
+const THEME_KEY = 'dumpit.themeMode';
 
 export interface SharePayload {
   text?: string | null;
@@ -83,6 +85,8 @@ interface DumpStore {
   removeFolder: (id: string) => void;
   /** Replace the vault wholesale (used by import). */
   replaceAll: (items: DumpItem[], folders: Folder[]) => void;
+  themeMode: ThemeMode;
+  setThemeMode: (mode: ThemeMode) => void;
   removeItem: (id: string) => void;
   dismissImportBanner: () => void;
   /** Semantic search via on-device embeddings. Null when unavailable. */
@@ -131,10 +135,15 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
   const downloadingRef = useRef(false);
   const itemsRef = useRef<DumpItem[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
+  const [themeMode, setThemeModeState] = useState<ThemeMode>('system');
 
   // Load once on startup. Legacy items gain an AI slot (queued for analysis).
   useEffect(() => {
     let mounted = true;
+    AsyncStorage.getItem(THEME_KEY).then((raw) => {
+      if (!mounted) return;
+      if (raw === 'light' || raw === 'dark' || raw === 'system') setThemeModeState(raw);
+    });
     AsyncStorage.getItem(FOLDERS_KEY).then((raw) => {
       if (!mounted || !raw) return;
       try {
@@ -161,7 +170,16 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
                   kanbanState: item.kanbanState ?? 'todo',
                   attachments: item.attachments ?? [],
                   memos: item.memos ?? [],
-                  ai: { ...emptyAi('pending'), ...(item.ai ?? {}) },
+                  ai: {
+                    ...emptyAi('pending'),
+                    ...(item.ai ?? {}),
+                    // Items that were 'analyzing' when the app died (force-stop/crash)
+                    // never get finished otherwise — re-queue them.
+                    status:
+                      item.ai?.status === 'analyzing'
+                        ? 'pending'
+                        : (item.ai?.status ?? 'pending'),
+                  },
                 }))
               );
             }
@@ -529,6 +547,11 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
     setFolders(newFolders);
   }, []);
 
+  const setThemeMode = useCallback((mode: ThemeMode) => {
+    setThemeModeState(mode);
+    AsyncStorage.setItem(THEME_KEY, mode).catch(() => {});
+  }, []);
+
   const removeItem = useCallback((id: string) => {
     setItems((prev) => {
       const target = prev.find((item) => item.id === id);
@@ -686,6 +709,8 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
       addFolder,
       removeFolder,
       replaceAll,
+      themeMode,
+      setThemeMode,
       removeItem,
       dismissImportBanner,
       semanticRank,
@@ -717,6 +742,8 @@ export function DumpProvider({ children }: { children: React.ReactNode }) {
       addFolder,
       removeFolder,
       replaceAll,
+      themeMode,
+      setThemeMode,
       removeItem,
       dismissImportBanner,
       semanticRank,

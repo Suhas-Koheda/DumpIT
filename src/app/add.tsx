@@ -2,24 +2,27 @@ import { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import {
+  Appbar,
+  Button,
+  Card,
+  TextInput,
+  Text,
+  useTheme,
+} from 'react-native-paper';
+import { Ionicons } from '@expo/vector-icons';
 
 import { useDumpStore } from '@/lib/dump-store';
 import { extractUrl } from '@/lib/classify';
-import { borders, colors, fonts } from '@/lib/theme';
 
 export default function AddDumpScreen() {
+  const theme = useTheme();
   const { addManualText } = useDumpStore();
   const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
-  const [focused, setFocused] = useState(false);
 
   const trimmed = text.trim();
   const detectedUrl = extractUrl(trimmed);
@@ -36,137 +39,49 @@ export default function AddDumpScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['bottom']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['bottom']}>
       <KeyboardAvoidingView
-        style={styles.flex}
+        style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={80}
       >
-        <View style={styles.content}>
-          <Text style={styles.label}>INSCRIBE YOUR DUMP</Text>
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            placeholder="A THOUGHT, A LINK, A RANT…"
-            placeholderTextColor={colors.faint}
-            style={[styles.input, focused && styles.inputFocused]}
-            multiline
-            autoFocus
-            textAlignVertical="top"
-          />
+        <Appbar.Header elevated={false} style={{ backgroundColor: theme.colors.surface }}>
+          <Appbar.BackAction onPress={() => router.back()} />
+          <Appbar.Content title="New dump" titleStyle={{ fontSize: 17, fontWeight: '600' }} />
+        </Appbar.Header>
 
-          {detectedUrl && (
-            <Text style={styles.detectText} numberOfLines={1}>
-              LINK DETECTED — SAVES AS {detectedUrl}
-            </Text>
-          )}
-
-          <View style={styles.actions}>
-            <Pressable style={styles.cancelBtn} onPress={() => router.back()}>
-              <Text style={styles.cancelText}>ABANDON</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.saveBtn, !trimmed && styles.saveBtnDisabled]}
-              onPress={save}
-              disabled={!trimmed || saving}
-            >
-              <Text style={[styles.saveText, !trimmed && styles.saveTextDisabled]}>
-                {saving ? 'BINDING…' : 'DUMP IT'}
+        <Card style={{ marginHorizontal: 12, marginTop: 12, backgroundColor: theme.colors.surface, flex: 1 }}>
+          <Card.Content style={{ flex: 1, gap: 12 }}>
+            <TextInput
+              value={text}
+              onChangeText={setText}
+              placeholder="A thought, a link, a rant…"
+              multiline
+              autoFocus
+              mode="flat"
+              underlineColor="transparent"
+              activeUnderlineColor="transparent"
+              style={{ backgroundColor: 'transparent', fontSize: 17, flex: 1, maxHeight: 320 }}
+            />
+            {detectedUrl && (
+              <Text variant="bodySmall" style={{ color: theme.colors.primary, fontWeight: '600' }}>
+                <Ionicons name="link" size={12} /> Saved as a link — {detectedUrl}
               </Text>
-            </Pressable>
-          </View>
-        </View>
+            )}
+          </Card.Content>
+        </Card>
+
+        <Button
+          mode="contained"
+          onPress={save}
+          disabled={!trimmed || saving}
+          loading={saving}
+          style={{ margin: 12, borderRadius: 24 }}
+          contentStyle={{ paddingVertical: 10 }}
+        >
+          {saving ? 'Saving…' : 'Dump it'}
+        </Button>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  flex: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    padding: 20,
-    gap: 14,
-  },
-  label: {
-    fontFamily: fonts.label,
-    fontSize: 13,
-    letterSpacing: 2,
-    color: colors.text,
-  },
-  input: {
-    flex: 1,
-    minHeight: 140,
-    fontFamily: fonts.mono,
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 22,
-    backgroundColor: colors.sunken,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    padding: 14,
-  },
-  inputFocused: {
-    borderWidth: borders.heavy,
-    padding: 12,
-  },
-  detectText: {
-    fontFamily: fonts.mono,
-    color: colors.blue,
-    fontSize: 11,
-    letterSpacing: 0.5,
-    borderWidth: borders.base,
-    borderColor: colors.blue,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  cancelBtn: {
-    flex: 1,
-    height: 52,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelText: {
-    fontFamily: fonts.label,
-    color: colors.text,
-    fontSize: 12,
-    letterSpacing: 2,
-  },
-  saveBtn: {
-    flex: 2,
-    height: 52,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveBtnDisabled: {
-    backgroundColor: colors.disabledFill,
-    borderColor: colors.disabledBorder,
-  },
-  saveTextDisabled: {
-    color: colors.faint,
-  },
-  saveText: {
-    fontFamily: fonts.label,
-    color: colors.ink,
-    fontSize: 12,
-    letterSpacing: 2,
-  },
-});

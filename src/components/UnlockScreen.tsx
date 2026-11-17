@@ -1,13 +1,19 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, useColorScheme, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
 
 import { verifyPin } from '@/lib/pin';
-import { borders, colors, fonts } from '@/lib/theme';
+import { lightScheme, darkScheme } from '@/lib/themes';
 
-/** Hard lock screen — shown on cold start when the vault PIN is set. */
+/**
+ * Lock screen — shown on cold start when the vault PIN is set.
+ * Renders before the app's theme provider, so it picks colors directly.
+ */
 export default function UnlockScreen({ onUnlocked }: { onUnlocked: () => void }) {
+  const systemScheme = useColorScheme();
+  const c = systemScheme === 'dark' ? darkScheme : lightScheme;
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
 
@@ -28,115 +34,45 @@ export default function UnlockScreen({ onUnlocked }: { onUnlocked: () => void })
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar style="dark" />
-      <View style={styles.root}>
-        <Text style={styles.logo}>DUMPIT</Text>
-        <Text style={styles.tagline}>THE VAULT IS LOCKED</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.background, alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+      <StatusBar style={systemScheme === 'dark' ? 'light' : 'dark'} />
+      <Ionicons name="lock-closed" size={44} color={c.primary} />
+      <Text style={{ fontSize: 30, fontWeight: '800', color: c.onBackground }}>DumpIT</Text>
+      <Text style={{ fontSize: 15, color: c.onSurfaceVariant }}>The vault is locked</Text>
 
-        <View style={styles.dotsRow}>
-          {Array.from({ length: Math.max(pin.length, 4) }, (_, i) => (
-            <View key={i} style={[styles.dot, i < pin.length && styles.dotFilled]} />
-          ))}
-        </View>
-        <Text style={[styles.error, error && styles.errorVisible]}>WRONG PIN. AGAIN.</Text>
+      <View style={{ flexDirection: 'row', gap: 12, marginVertical: 10 }}>
+        {Array.from({ length: Math.max(pin.length, 4) }, (_, i) => (
+          <View
+            key={i}
+            style={{
+              width: 15,
+              height: 15,
+              borderRadius: 7.5,
+              backgroundColor: i < pin.length ? c.primary : c.surfaceVariant,
+            }}
+          />
+        ))}
+      </View>
+      {error ? (
+        <Text style={{ fontSize: 13, color: c.error }}>Wrong PIN — try again.</Text>
+      ) : null}
 
-        <View style={styles.pad}>
-          {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
-            <Pressable key={d} style={styles.key} onPress={() => digit(d)}>
-              <Text style={styles.keyText}>{d}</Text>
-            </Pressable>
-          ))}
-          <Pressable style={styles.key} onPress={() => setPin('')}>
-            <Text style={styles.keyText}>C</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 14, width: 236 }}>
+        {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
+          <Pressable key={d} onPress={() => digit(d)} style={{ width: 62, height: 62, borderRadius: 31, backgroundColor: c.surfaceVariant, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 22, color: c.onSurface }}>{d}</Text>
           </Pressable>
-          <Pressable style={styles.key} onPress={() => digit('0')}>
-            <Text style={styles.keyText}>0</Text>
-          </Pressable>
-          <Pressable style={[styles.key, styles.keyGo]} onPress={submit}>
-            <Text style={[styles.keyText, styles.keyGoText]}>→</Text>
-          </Pressable>
-        </View>
+        ))}
+        <Pressable onPress={() => setPin('')} style={{ width: 62, height: 62, borderRadius: 31, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 15, color: c.onSurfaceVariant, fontWeight: '700' }}>CLR</Text>
+        </Pressable>
+        <Pressable onPress={() => digit('0')} style={{ width: 62, height: 62, borderRadius: 31, backgroundColor: c.surfaceVariant, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 22, color: c.onSurface }}>0</Text>
+        </Pressable>
+        <Pressable onPress={submit} style={{ width: 62, height: 62, borderRadius: 31, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="arrow-forward" size={26} color={c.onPrimary} />
+        </Pressable>
       </View>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  root: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 18,
-    padding: 24,
-  },
-  logo: {
-    fontFamily: fonts.display,
-    fontSize: 44,
-    letterSpacing: 6,
-    color: colors.text,
-  },
-  tagline: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    letterSpacing: 3,
-    color: colors.faint,
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 14,
-  },
-  dot: {
-    width: 14,
-    height: 14,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
-  },
-  dotFilled: {
-    backgroundColor: colors.accent,
-  },
-  error: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 2,
-    color: colors.error,
-    opacity: 0,
-  },
-  errorVisible: {
-    opacity: 1,
-  },
-  pad: {
-    width: 260,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 8,
-  },
-  key: {
-    width: 74,
-    height: 64,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  keyGo: {
-    backgroundColor: colors.accent,
-  },
-  keyText: {
-    fontFamily: fonts.display,
-    fontSize: 22,
-    color: colors.text,
-  },
-  keyGoText: {
-    color: colors.ink,
-    fontSize: 26,
-  },
-});

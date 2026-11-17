@@ -4,21 +4,30 @@ import {
   FlatList,
   Pressable,
   ScrollView,
-  StyleSheet,
-  Text,
   TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Image } from 'expo-image';
+import {
+  Appbar,
+  Card,
+  Chip,
+  FAB,
+  IconButton,
+  Searchbar,
+  Surface,
+  Text as PaperText,
+  useTheme,
+} from 'react-native-paper';
+import { Ionicons } from '@expo/vector-icons';
 
 import Badge from '@/components/Badge';
 import AiOnboardCard from '@/components/AiOnboardCard';
 import Loader from '@/components/Loader';
 import SimulatePanel from '@/components/SimulatePanel';
 import { useDumpStore, type AiState } from '@/lib/dump-store';
-import { borders, colors, fonts } from '@/lib/theme';
 import { timeAgo } from '@/lib/time';
 import type { DumpItem } from '@/lib/types';
 
@@ -35,6 +44,7 @@ const FILTERS: { key: Filter; label: string }[] = [
 ];
 
 export default function InboxScreen() {
+  const theme = useTheme();
   const {
     items,
     hydrated,
@@ -49,7 +59,6 @@ export default function InboxScreen() {
   } = useDumpStore();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
-  const [searchFocused, setSearchFocused] = useState(false);
   const [semantic, setSemantic] = useState(false);
   const [semOrder, setSemOrder] = useState<Map<string, number> | null>(null);
   const [category, setCategory] = useState<string | null>(null);
@@ -76,14 +85,14 @@ export default function InboxScreen() {
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = items.filter((item) => {
+      if (filter === 'private') return item.isPrivate;
+      if (item.isPrivate) return false;
+      if (folderId && item.folderId !== folderId) return false;
       if (filter === 'x' && !(item.kind === 'link' && item.platform === 'x')) return false;
       if (filter === 'linkedin' && !(item.kind === 'link' && item.platform === 'linkedin'))
         return false;
       if (filter === 'link' && item.kind !== 'link') return false;
       if (filter === 'text' && item.kind !== 'text') return false;
-      if (filter === 'private') return item.isPrivate;
-      if (item.isPrivate) return false; // private dumps hidden unless PIN-view/private filter
-      if (folderId && item.folderId !== folderId) return false;
       if (filter === 'image' && item.kind !== 'image') return false;
       if (category && (item.ai?.status !== 'done' || item.ai.category !== category)) return false;
       if (semanticActive) return true;
@@ -128,12 +137,14 @@ export default function InboxScreen() {
   const presentCategories = useMemo(
     () =>
       Array.from(
-        items.reduce((map, item) => {
-          if (item.ai?.status === 'done') {
-            map.set(item.ai.category, (map.get(item.ai.category) ?? 0) + 1);
-          }
-          return map;
-        }, new Map<string, number>()).entries()
+        items
+          .reduce((map, item) => {
+            if (item.ai?.status === 'done') {
+              map.set(item.ai.category, (map.get(item.ai.category) ?? 0) + 1);
+            }
+            return map;
+          }, new Map<string, number>())
+          .entries()
       ).sort((a, b) => b[1] - a[1]),
     [items]
   );
@@ -166,195 +177,257 @@ export default function InboxScreen() {
 
   if (!hydrated) {
     return (
-      <SafeAreaView style={styles.safe} edges={['top']}>
-        <Loader message="LOADING YOUR DUMPS" />
+      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+        <Loader message="Loading your dumps" />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.logo}>DUMPIT</Text>
-          <Text style={styles.tagline}>Share it. Dump it. Deal with it later.</Text>
-        </View>
-        <View style={styles.headerRight}>
-          <Pressable style={styles.headerBtn} onPress={() => router.push('/board')}>
-            <Text style={styles.headerBtnText}>BOARD</Text>
-          </Pressable>
-          <Pressable style={styles.headerBtn} onPress={() => router.push('/calendar')}>
-            <Text style={styles.headerBtnText}>CAL</Text>
-          </Pressable>
-          <Pressable style={styles.headerBtn} onPress={() => router.push('/settings')}>
-            <Text style={styles.headerBtnText}>CFG</Text>
-          </Pressable>
-          <View style={styles.countPill}>
-            <Text style={styles.countPillText}>{totalCount}</Text>
-          </View>
-        </View>
-      </View>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+      {/* Top app bar */}
+      <Appbar.Header elevated={false} style={{ backgroundColor: theme.colors.surface }}>
+        <Appbar.Content
+          title="DumpIT"
+          titleStyle={{ fontWeight: '800', fontSize: 22, color: theme.colors.primary }}
+          subtitle="Share it. Dump it. Deal with it later."
+          subtitleStyle={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}
+        />
+        <IconButton
+          icon="view-column-outline"
+          onPress={() => router.push('/board')}
+          iconColor={theme.colors.onSurfaceVariant}
+        />
+        <IconButton
+          icon="calendar-month-outline"
+          onPress={() => router.push('/calendar')}
+          iconColor={theme.colors.onSurfaceVariant}
+        />
+        <IconButton
+          icon="cog-outline"
+          onPress={() => router.push('/settings')}
+          iconColor={theme.colors.onSurfaceVariant}
+        />
+        <Surface
+          elevation={0}
+          style={{
+            borderRadius: 14,
+            backgroundColor: theme.colors.primaryContainer,
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            marginRight: 8,
+          }}
+        >
+          <PaperText style={{ fontWeight: '800', color: theme.colors.onPrimaryContainer }}>
+            {totalCount}
+          </PaperText>
+        </Surface>
+      </Appbar.Header>
 
-      {/* Import banner — status chip style */}
+      {/* Import banner */}
       {lastImportCount > 0 && (
-        <Pressable style={styles.banner} onPress={dismissImportBanner}>
-          <Text style={styles.bannerText}>
-            +{lastImportCount} {lastImportCount === 1 ? 'DUMP' : 'DUMPS'} RECEIVED — TAP TO DISMISS
-          </Text>
+        <Pressable
+          onPress={dismissImportBanner}
+          style={{
+            marginHorizontal: 12,
+            marginTop: 8,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            borderRadius: 12,
+            backgroundColor: theme.colors.tertiaryContainer,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Ionicons name="checkmark-circle" size={18} color={theme.colors.onTertiaryContainer} />
+          <PaperText style={{ flex: 1, color: theme.colors.onTertiaryContainer, fontSize: 13 }}>
+            +{lastImportCount} {lastImportCount === 1 ? 'dump' : 'dumps'} saved
+          </PaperText>
+          <Ionicons name="close" size={16} color={theme.colors.onTertiaryContainer} />
         </Pressable>
       )}
 
       {/* Search */}
-      <View style={[styles.searchRow, searchFocused && styles.searchRowFocused]}>
-        <TextInput
+      <View style={{ paddingHorizontal: 12, paddingTop: 8, gap: 6 }}>
+        <Searchbar
           value={query}
           onChangeText={setQuery}
-          onFocus={() => setSearchFocused(true)}
-          onBlur={() => setSearchFocused(false)}
-          placeholder="SEARCH DUMPS, TAGS, NOTES"
-          placeholderTextColor={colors.faint}
-          style={styles.searchInput}
-          autoCapitalize="none"
-          autoCorrect={false}
+          placeholder="Search dumps, tags, notes…"
+          style={{ backgroundColor: theme.colors.surfaceVariant, elevation: 0 }}
+          inputStyle={{ minHeight: 0 }}
+          iconColor={theme.colors.onSurfaceVariant}
+          clearIcon="close"
+          onClearIconPress={() => setQuery('')}
+          traileringIcon={aiState === 'ready' ? (semantic ? 'sparkles' : 'sparkles-outline') : undefined}
+          onTraileringIconPress={() => setSemantic((v) => !v)}
         />
-        {query.length > 0 && (
-          <Pressable onPress={() => setQuery('')} hitSlop={10} style={styles.clearBtn}>
-            <Text style={styles.clearBtnText}>×</Text>
-          </Pressable>
-        )}
-        {aiState === 'ready' && (
-          <Pressable
-            onPress={() => setSemantic((value) => !value)}
-            hitSlop={10}
-            style={[styles.aiChip, semantic && styles.aiChipActive]}
-            accessibilityLabel="Toggle semantic search"
-          >
-            <Text style={[styles.aiChipText, semantic && styles.aiChipTextActive]}>AI</Text>
-          </Pressable>
+        {semanticActive && (
+          <PaperText style={{ fontSize: 11, color: theme.colors.onSurfaceVariant, paddingLeft: 8 }}>
+            ✨ Ranked by on-device embeddings
+          </PaperText>
         )}
       </View>
-      {semanticActive && <Text style={styles.semanticHint}>AI-RANKED BY MEANING</Text>}
 
-      {/* Filters */}
+      {/* Type filters */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filters}
+        contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 10, gap: 8 }}
       >
-        {FILTERS.map(({ key, label }) => {
-          const active = filter === key;
-          return (
-            <Pressable
-              key={key}
-              onPress={() => setFilter(key)}
-              style={[styles.chip, active && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                {label.toUpperCase()}
-              </Text>
-            </Pressable>
-          );
-        })}
+        {FILTERS.map(({ key, label }) => (
+          <Chip
+            key={key}
+            compact
+            selected={filter === key}
+            onPress={() => setFilter(key)}
+            showSelectedOverlay={false}
+            selectedColor={theme.colors.onPrimaryContainer}
+            style={{
+              backgroundColor:
+                filter === key ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
+            }}
+            textStyle={{ fontSize: 13, fontWeight: filter === key ? '700' : '400' }}
+          >
+            {label}
+          </Chip>
+        ))}
       </ScrollView>
 
-      {/* Category filter — derived from what the Oracle classified */}
+      {/* Category filters (derived from what the Oracle classified) */}
       {presentCategories.length > 0 && (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryFilters}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 6, gap: 8 }}
         >
-          <Pressable
+          <Chip
+            compact
+            selected={category === null}
             onPress={() => setCategory(null)}
-            style={[styles.catChip, category === null && styles.catChipActive]}
+            showSelectedOverlay={false}
+            style={{
+              backgroundColor:
+                category === null ? theme.colors.secondaryContainer : theme.colors.surfaceVariant,
+            }}
+            textStyle={{ fontSize: 12 }}
           >
-            <Text style={[styles.catChipText, category === null && styles.catChipTextActive]}>
-              ALL
-            </Text>
-          </Pressable>
-          {presentCategories.map(([name, count]) => {
-            const active = category === name;
-            return (
-              <Pressable
-                key={name}
-                onPress={() => setCategory(active ? null : name)}
-                style={[styles.catChip, active && styles.catChipActive]}
-              >
-                <Text style={[styles.catChipText, active && styles.catChipTextActive]}>
-                  {name.toUpperCase()} · {count}
-                </Text>
-              </Pressable>
-            );
-          })}
+            All categories
+          </Chip>
+          {presentCategories.map(([name, count]) => (
+            <Chip
+              key={name}
+              compact
+              selected={category === name}
+              onPress={() => setCategory(category === name ? null : name)}
+              showSelectedOverlay={false}
+              style={{
+                backgroundColor:
+                  category === name
+                    ? theme.colors.secondaryContainer
+                    : theme.colors.surfaceVariant,
+              }}
+              textStyle={{ fontSize: 12 }}
+            >
+              {name} · {count}
+            </Chip>
+          ))}
         </ScrollView>
       )}
 
-      {/* Blocks (colored groups) */}
+      {/* Blocks / folders */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.folderRow}
+        contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 6, gap: 8, alignItems: 'center' }}
       >
-        <Pressable
+        <Chip
+          compact
+          selected={folderId === null}
           onPress={() => setFolderId(null)}
-          style={[styles.folderChip, folderId === null && styles.folderChipActive]}
+          showSelectedOverlay={false}
+          style={{
+            backgroundColor:
+              folderId === null ? theme.colors.tertiaryContainer : theme.colors.surfaceVariant,
+          }}
+          textStyle={{ fontSize: 12 }}
         >
-          <View style={[styles.folderDot, { backgroundColor: '#FFFFFF', borderColor: colors.border }]} />
-          <Text style={[styles.folderChipText, folderId === null && styles.folderChipTextActive]}>ALL</Text>
-        </Pressable>
-        {folders.map((folder) => {
-          const active = folderId === folder.id;
-          return (
-            <Pressable
-              key={folder.id}
-              onPress={() => setFolderId(active ? null : folder.id)}
-              style={[styles.folderChip, active && styles.folderChipActive]}
-            >
-              <View style={[styles.folderDot, { backgroundColor: folder.color }]} />
-              <Text
-                style={[styles.folderChipText, active && styles.folderChipTextActive]}
-                numberOfLines={1}
-              >
-                {folder.name.toUpperCase()}
-              </Text>
-            </Pressable>
-          );
-        })}
+          All blocks
+        </Chip>
+        {folders.map((folder) => (
+          <Chip
+            key={folder.id}
+            compact
+            selected={folderId === folder.id}
+            onPress={() => setFolderId(folderId === folder.id ? null : folder.id)}
+            showSelectedOverlay={false}
+            avatar={
+              <View
+                style={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: 8,
+                  backgroundColor: folder.color,
+                }}
+              />
+            }
+            style={{
+              backgroundColor:
+                folderId === folder.id
+                  ? theme.colors.tertiaryContainer
+                  : theme.colors.surfaceVariant,
+            }}
+            textStyle={{ fontSize: 12 }}
+          >
+            {folder.name}
+          </Chip>
+        ))}
         {folderInputOpen ? (
-          <View style={styles.folderChip}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <TextInput
               autoFocus
               value={folderName}
               onChangeText={setFolderName}
+              placeholder="Block name"
+              placeholderTextColor={theme.colors.onSurfaceVariant}
               onBlur={() => {
                 const name = folderName.trim();
                 if (name) {
-                  const palette = ['#0000FF', '#008000', '#FF0000', '#FFA500', '#000000', '#7A5CFF'];
+                  const palette = ['#3E5C4C', '#415E63', '#BA1A1A', '#B45309', '#4E6356'];
                   addFolder(name, palette[Math.floor(Math.random() * palette.length)]);
                 }
                 setFolderName('');
                 setFolderInputOpen(false);
               }}
-              placeholder="BLOCK NAME"
-              placeholderTextColor={colors.faint}
-              style={styles.folderInput}
-              returnKeyType="done"
               onSubmitEditing={() => {
                 const name = folderName.trim();
                 if (name) {
-                  const palette = ['#0000FF', '#008000', '#FF0000', '#FFA500', '#000000'];
+                  const palette = ['#3E5C4C', '#415E63', '#BA1A1A', '#B45309', '#4E6356'];
                   addFolder(name, palette[Math.floor(Math.random() * palette.length)]);
                 }
                 setFolderName('');
                 setFolderInputOpen(false);
+              }}
+              style={{
+                borderBottomWidth: 1,
+                borderBottomColor: theme.colors.primary,
+                paddingHorizontal: 6,
+                paddingVertical: 4,
+                minWidth: 120,
+                color: theme.colors.onSurface,
               }}
             />
           </View>
         ) : (
-          <Pressable onPress={() => setFolderInputOpen(true)} style={styles.folderChip}>
-            <Text style={styles.folderChipText}>+ BLOCK</Text>
-          </Pressable>
+          <Chip
+            compact
+            mode="outlined"
+            onPress={() => setFolderInputOpen(true)}
+            icon="plus"
+            textStyle={{ fontSize: 12 }}
+          >
+            Block
+          </Chip>
         )}
       </ScrollView>
 
@@ -362,7 +435,7 @@ export default function InboxScreen() {
       <FlatList
         data={visible}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={{ padding: 12, paddingBottom: 100, gap: 12 }}
         keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => (
           <DumpCard
@@ -373,18 +446,32 @@ export default function InboxScreen() {
           />
         )}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>
-              {query || filter !== 'all' || category || folderId ? 'NOTHING FOUND' : 'NOTHING IN THE VAULT'}
-            </Text>
-            <Text style={styles.emptyHint}>
-              {query || filter !== 'all'
-                ? 'Try a different search or filter.'
-                : 'Share any text, tweet, LinkedIn post or screenshot to DumpIT and it shows up here.'}
-            </Text>
-            {!query && filter === 'all' && (
-              <Pressable style={styles.sampleBtn} onPress={loadSamples}>
-                <Text style={styles.sampleBtnText}>CLAIM SAMPLE DUMPS</Text>
+          <View style={{ alignItems: 'center', paddingTop: 48, gap: 12, paddingHorizontal: 32 }}>
+            <Ionicons name="file-tray-outline" size={56} color={theme.colors.outline} />
+            <PaperText variant="titleMedium"
+              style={{ color: theme.colors.onSurface, fontWeight: '700' }}
+            >
+              {query || filter !== 'all' || category || folderId ? 'Nothing here' : 'Dump it all here'}
+            </PaperText>
+            <PaperText variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, textAlign: 'center' }}>
+              Share tweets, LinkedIn posts, articles and screenshots straight to DumpIT.
+            </PaperText>
+            {!query && filter === 'all' && !category && !folderId && (
+              <Pressable
+                onPress={loadSamples}
+                style={{
+                  marginTop: 4,
+                  paddingHorizontal: 20,
+                  paddingVertical: 12,
+                  borderRadius: 22,
+                  backgroundColor: theme.colors.primary,
+                }}
+              >
+                <PaperText
+                  style={{ color: theme.colors.onPrimary, fontWeight: '800', letterSpacing: 0.5 }}
+                >
+                  LOAD SAMPLE DUMPS
+                </PaperText>
               </Pressable>
             )}
           </View>
@@ -393,14 +480,19 @@ export default function InboxScreen() {
         ListFooterComponent={<SimulatePanel />}
       />
 
-      {/* FAB — hard square */}
-      <Pressable
-        style={styles.fab}
+      {/* FAB */}
+      <FAB
+        icon="plus"
+        label="New dump"
         onPress={() => router.push('/add')}
-        accessibilityLabel="Add dump"
-      >
-        <Text style={styles.fabText}>+</Text>
-      </Pressable>
+                style={{
+          position: 'absolute',
+          right: 16,
+          bottom: 28,
+          backgroundColor: theme.colors.primaryContainer,
+        }}
+        color={theme.colors.onPrimaryContainer}
+      />
     </SafeAreaView>
   );
 }
@@ -416,490 +508,154 @@ function DumpCard({
   onDelete: () => void;
   aiState: AiState;
 }) {
+  const theme = useTheme();
   return (
-    <Pressable
+    <Card
+      mode="elevated"
       onPress={onPress}
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+      style={{ backgroundColor: theme.colors.surface }}
     >
-      <View style={styles.cardTopRow}>
-        <Badge item={item} />
-        <View style={styles.cardTopRight}>
-          <Text style={styles.time}>{timeAgo(item.createdAt)}</Text>
-          <Pressable onPress={onDelete} hitSlop={10} style={styles.delBtn}>
-            <Text style={styles.delBtnText}>DEL</Text>
-          </Pressable>
+      <Card.Content style={{ gap: 8, paddingVertical: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Badge item={item} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <PaperText style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>
+              {timeAgo(item.createdAt)}
+            </PaperText>
+            <IconButton
+              icon="trash-can-outline"
+              size={18}
+              iconColor={theme.colors.onSurfaceVariant}
+              onPress={onDelete}
+              style={{ margin: 0 }}
+            />
+          </View>
         </View>
-      </View>
 
-      {item.kind === 'image' && item.imageUri ? (
-        <Image source={{ uri: item.imageUri }} style={styles.thumb} contentFit="cover" transition={0} />
-      ) : null}
+        {item.kind === 'image' && item.imageUri ? (
+          <Image
+            source={{ uri: item.imageUri }}
+            style={{ width: '100%', height: 150, borderRadius: 12, backgroundColor: theme.colors.surfaceVariant }}
+            contentFit="cover"
+            transition={120}
+          />
+        ) : null}
 
-      <Text style={styles.cardTitle} numberOfLines={2}>
-        {item.title}
-      </Text>
-      {item.text && item.kind !== 'image' ? (
-        <Text style={styles.cardSnippet} numberOfLines={2}>
-          {item.text}
-        </Text>
-      ) : null}
+        <PaperText variant="titleMedium"
+          numberOfLines={2}
+          style={{ color: theme.colors.onSurface, fontWeight: '700' }}
+        >
+          {item.title}
+        </PaperText>
 
-      {item.ai?.status === 'done' && item.ai.summary ? (
-        <View style={styles.aiRow}>
-          <Text style={styles.aiPrefix}>AI:</Text>
-          <Text style={styles.aiSummary} numberOfLines={2}>
-            {item.ai.summary}
-          </Text>
-        </View>
-      ) : item.ai && (item.ai.status === 'pending' || item.ai.status === 'analyzing') ? (
-        <View style={styles.aiRow}>
-          <Text style={styles.aiPrefix}>AI:</Text>
-          <Text style={styles.aiReading}>
-            {aiState === 'ready' ? 'THE ORACLE IS READING…' : 'WAITING FOR THE ORACLE (SEE BANNER)'}
-          </Text>
-        </View>
-      ) : null}
+        {item.text && item.kind !== 'image' ? (
+          <PaperText variant="bodySmall"
+            numberOfLines={2}
+            style={{ color: theme.colors.onSurfaceVariant }}
+          >
+            {item.text}
+          </PaperText>
+        ) : null}
 
-      <View style={styles.cardBottomRow}>
-        {item.pinned ? (
-          <View style={styles.pinMini}>
-            <Text style={styles.pinMiniText}>PIN</Text>
+        {item.ai?.status === 'done' && item.ai.summary ? (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'flex-start',
+              gap: 8,
+              backgroundColor: theme.colors.secondaryContainer,
+              paddingHorizontal: 10,
+              paddingVertical: 8,
+              borderRadius: 12,
+            }}
+          >
+            <Ionicons
+              name="sparkles"
+              size={13}
+              color={theme.colors.onSecondaryContainer}
+              style={{ marginTop: 2 }}
+            />
+            <PaperText
+              numberOfLines={2}
+              style={{ flex: 1, fontSize: 12, color: theme.colors.onSecondaryContainer }}
+            >
+              {item.ai.summary}
+            </PaperText>
+          </View>
+        ) : item.ai && (item.ai.status === 'pending' || item.ai.status === 'analyzing') ? (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              backgroundColor: theme.colors.surfaceVariant,
+              paddingHorizontal: 10,
+              paddingVertical: 8,
+              borderRadius: 12,
+            }}
+          >
+            <Ionicons name="hourglass-outline" size={13} color={theme.colors.onSurfaceVariant} />
+            <PaperText style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>
+              {aiState === 'ready' ? 'Oracle is reading…' : 'Waiting for on-device AI (see card above)'}
+            </PaperText>
           </View>
         ) : null}
-        {item.urlHost ? <Text style={styles.host}>{item.urlHost}</Text> : null}
-        {item.ai?.status === 'done' && item.ai.category === 'todo' && item.ai.todos.length > 0 ? (
-          <Text style={styles.todoCount}>
-            ✓ {item.ai.todosDone.length}/{item.ai.todos.length}
-          </Text>
-        ) : null}
-        {item.note ? (
-          <View style={styles.noteFlag}>
-            <Text style={styles.noteFlagText}>NOTE</Text>
-          </View>
-        ) : null}
-        {item.tags.slice(0, 3).map((tag) => (
-          <View key={tag} style={styles.tag}>
-            <Text style={styles.tagText}>#{tag}</Text>
-          </View>
-        ))}
-      </View>
-    </Pressable>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {item.urlHost ? (
+            <PaperText style={{ fontSize: 11, color: theme.colors.primary, fontWeight: '600' }}>
+              {item.urlHost} ↗
+            </PaperText>
+          ) : null}
+          {item.pinned ? (
+            <View
+              style={{
+                borderRadius: 6,
+                backgroundColor: theme.colors.tertiaryContainer,
+                paddingHorizontal: 6,
+                paddingVertical: 2,
+              }}
+            >
+              <PaperText style={{ fontSize: 9, letterSpacing: 1, color: theme.colors.onTertiaryContainer }}>
+                PINNED
+              </PaperText>
+            </View>
+          ) : null}
+          {item.ai?.status === 'done' &&
+          item.ai.category === 'todo' &&
+          item.ai.todos.length > 0 ? (
+            <PaperText style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>
+              ✓ {item.ai.todosDone.length}/{item.ai.todos.length}
+            </PaperText>
+          ) : null}
+          {item.note ? (
+            <View
+              style={{
+                borderRadius: 6,
+                borderWidth: 1,
+                borderColor: theme.colors.outlineVariant,
+                paddingHorizontal: 6,
+                paddingVertical: 2,
+              }}
+            >
+              <PaperText style={{ fontSize: 9, color: theme.colors.onSurfaceVariant }}>NOTE</PaperText>
+            </View>
+          ) : null}
+          {item.tags.slice(0, 3).map((tag) => (
+            <View
+              key={tag}
+              style={{
+                borderRadius: 6,
+                backgroundColor: theme.colors.surfaceVariant,
+                paddingHorizontal: 6,
+                paddingVertical: 2,
+              }}
+            >
+              <PaperText style={{ fontSize: 10, color: theme.colors.onSurfaceVariant }}>#{tag}</PaperText>
+            </View>
+          ))}
+        </View>
+      </Card.Content>
+    </Card>
   );
 }
-
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 8,
-    borderBottomWidth: borders.thick,
-    borderBottomColor: colors.border,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  headerBtn: {
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-  },
-  headerBtnText: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1,
-    color: colors.text,
-  },
-  folderRow: {
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    gap: 8,
-    alignItems: 'center',
-  },
-  folderChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    maxWidth: 150,
-  },
-  folderChipActive: {
-    backgroundColor: colors.accent,
-  },
-  folderDot: {
-    width: 12,
-    height: 12,
-    borderWidth: borders.thin,
-    borderColor: colors.border,
-  },
-  folderChipText: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1,
-    color: colors.text,
-    flexShrink: 1,
-  },
-  folderChipTextActive: {
-    color: colors.ink,
-  },
-  folderInput: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: colors.text,
-    minWidth: 110,
-    paddingVertical: 0,
-  },
-  logo: {
-    fontFamily: fonts.display,
-    fontSize: 42,
-    letterSpacing: 3,
-    color: colors.text,
-    lineHeight: 46,
-  },
-  tagline: {
-    fontFamily: fonts.body,
-    color: colors.muted,
-    fontSize: 13,
-    marginTop: 4,
-  },
-  countPill: {
-    backgroundColor: colors.accent,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  countPillText: {
-    fontFamily: fonts.mono,
-    color: colors.ink,
-    fontSize: 16,
-  },
-  banner: {
-    marginHorizontal: 20,
-    marginTop: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderWidth: borders.base,
-    borderColor: colors.success,
-  },
-  bannerText: {
-    fontFamily: fonts.mono,
-    color: colors.success,
-    fontSize: 11,
-    letterSpacing: 1,
-    textAlign: 'center',
-  },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 20,
-    marginTop: 12,
-    paddingHorizontal: 12,
-    height: 46,
-    backgroundColor: colors.sunken,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-  },
-  searchRowFocused: {
-    borderWidth: borders.heavy,
-    paddingHorizontal: 10,
-  },
-  searchInput: {
-    flex: 1,
-    fontFamily: fonts.mono,
-    color: colors.text,
-    fontSize: 14,
-    paddingVertical: 0,
-  },
-  clearBtn: {
-    paddingHorizontal: 6,
-  },
-  clearBtnText: {
-    fontFamily: fonts.bodySemi,
-    fontSize: 20,
-    color: colors.text,
-  },
-  aiChip: {
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginLeft: 6,
-  },
-  aiChipActive: {
-    backgroundColor: colors.accent,
-  },
-  aiChipText: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 1,
-    color: colors.text,
-  },
-  aiChipTextActive: {
-    color: colors.ink,
-  },
-  semanticHint: {
-    fontFamily: fonts.mono,
-    color: colors.muted,
-    fontSize: 10,
-    letterSpacing: 1,
-    marginHorizontal: 22,
-    marginTop: 4,
-  },
-  filters: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    gap: 8,
-  },
-  categoryFilters: {
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    gap: 8,
-  },
-  catChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderWidth: borders.thin,
-    borderColor: colors.faint,
-    backgroundColor: colors.bg,
-  },
-  catChipActive: {
-    backgroundColor: colors.accent,
-    borderColor: colors.border,
-    borderWidth: borders.base,
-  },
-  catChipText: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1,
-    color: colors.muted,
-  },
-  catChipTextActive: {
-    color: colors.ink,
-  },
-  pinMini: {
-    backgroundColor: colors.accent,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  pinMiniText: {
-    fontFamily: fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1.5,
-    color: colors.ink,
-  },
-  todoCount: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: colors.success,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
-  },
-  chipActive: {
-    backgroundColor: colors.accent,
-  },
-  chipText: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 1.5,
-    color: colors.text,
-  },
-  chipTextActive: {
-    color: colors.ink,
-  },
-  list: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    gap: 12,
-  },
-  card: {
-    backgroundColor: colors.card,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    padding: 14,
-    gap: 8,
-    borderRadius: 0,
-  },
-  cardPressed: {
-    backgroundColor: colors.sunken,
-    borderWidth: borders.heavy,
-    padding: 13,
-  },
-  cardTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  cardTopRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  time: {
-    fontFamily: fonts.mono,
-    color: colors.faint,
-    fontSize: 11,
-  },
-  delBtn: {
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  delBtnText: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1,
-    color: colors.text,
-  },
-  thumb: {
-    width: '100%',
-    height: 150,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    backgroundColor: colors.sunken,
-  },
-  cardTitle: {
-    fontFamily: fonts.bodySemi,
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 20,
-  },
-  cardSnippet: {
-    fontFamily: fonts.body,
-    color: colors.muted,
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  aiRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  aiPrefix: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: colors.text,
-    letterSpacing: 1,
-  },
-  aiSummary: {
-    flex: 1,
-    fontFamily: fonts.body,
-    color: colors.text,
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  aiReading: {
-    flex: 1,
-    fontFamily: fonts.mono,
-    color: colors.muted,
-    fontSize: 10,
-    letterSpacing: 0.5,
-  },
-  cardBottomRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexWrap: 'wrap',
-  },
-  host: {
-    fontFamily: fonts.mono,
-    color: colors.blue,
-    fontSize: 11,
-    textDecorationLine: 'underline',
-  },
-  noteFlag: {
-    borderWidth: borders.base,
-    borderColor: colors.border,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  noteFlagText: {
-    fontFamily: fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1.5,
-    color: colors.text,
-  },
-  tag: {
-    backgroundColor: colors.sunken,
-    borderWidth: borders.thin,
-    borderColor: colors.border,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  tagText: {
-    fontFamily: fonts.mono,
-    color: colors.muted,
-    fontSize: 10,
-  },
-  empty: {
-    alignItems: 'center',
-    gap: 12,
-    paddingTop: 48,
-    paddingHorizontal: 24,
-  },
-  emptyTitle: {
-    fontFamily: fonts.display,
-    fontSize: 20,
-    letterSpacing: 2,
-    color: colors.text,
-  },
-  emptyHint: {
-    fontFamily: fonts.body,
-    color: colors.muted,
-    fontSize: 13,
-    textAlign: 'center',
-    lineHeight: 19,
-  },
-  sampleBtn: {
-    marginTop: 8,
-    backgroundColor: colors.accent,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-  },
-  sampleBtnText: {
-    fontFamily: fonts.label,
-    color: colors.ink,
-    fontSize: 12,
-    letterSpacing: 2,
-  },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 28,
-    width: 60,
-    height: 60,
-    backgroundColor: colors.accent,
-    borderWidth: borders.thick,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fabText: {
-    fontFamily: fonts.display,
-    color: colors.ink,
-    fontSize: 30,
-    lineHeight: 32,
-  },
-});
