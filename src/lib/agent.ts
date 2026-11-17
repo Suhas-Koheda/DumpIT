@@ -38,6 +38,7 @@ export async function runAgent(
   const sources: string[] = [];
   const evidenceBlocks: string[] = [];
   const failed = new Set<string>();
+  const read = new Set<string>();
   const seen = new Set<string>();
   const candidates: string[] = [];
 
@@ -71,15 +72,16 @@ export async function runAgent(
 
   // ── Step 2: agentic read loop — read the most useful unread link, discover nested links ──
   const readOne = async (url: string): Promise<boolean> => {
-    if (failed.has(url)) return false;
-    const read = await readLinkContent(url);
-    if (!read.pageText) {
+    if (failed.has(url) || read.has(url)) return false;
+    read.add(url);
+    const link = await readLinkContent(url);
+    if (!link.pageText) {
       failed.add(url);
       return false;
     }
-    evidenceBlocks.push(`[${sources.length + 1}] ${read.pageTitle ?? url}\n${read.pageText}`);
-    sources.push(`${read.pageTitle ?? url}`);
-    for (const nested of extractAllUrls(read.pageText + ' ' + url)) {
+    evidenceBlocks.push(`[${sources.length + 1}] ${link.pageTitle ?? url}\n${link.pageText}`);
+    sources.push(`${link.pageTitle ?? url}`);
+    for (const nested of extractAllUrls(link.pageText + ' ' + url)) {
       if (!seen.has(nested)) {
         seen.add(nested);
         candidates.push(nested);
@@ -89,7 +91,7 @@ export async function runAgent(
   };
 
   for (let i = 0; i < MAX_READS; i++) {
-    const unread = candidates.filter((u) => !evidenceBlocks.some((b) => b.includes(u)));
+    const unread = candidates.filter((u) => !read.has(u) && !failed.has(u));
     const next = unread[0];
     if (!next) break;
 
