@@ -4,7 +4,7 @@ export type DumpKind = 'text' | 'link' | 'image';
 export type Platform = 'x' | 'linkedin' | 'web' | null;
 export type AgentStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
 
-export type { AgentStep, AgentStepStatus, AgentStepKind, AgentResult } from './agent';
+export type { AgentStep, AgentStepStatus, AgentResult } from './agent';
 
 export interface DumpItem {
   id: string;

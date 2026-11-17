@@ -1,16 +1,59 @@
+import 'react-native-url-polyfill/auto';
+import 'react-native-get-random-values';
+
+import { StateGraph, START, END, Annotation } from '@langchain/langgraph';
+import { tool } from '@langchain/core/tools';
+import { z } from 'zod';
+
 import { extractAllUrls, readLinkContent } from './link-reader';
 import { modelReady, summarizeEvidence } from './llm';
 
+// ── Tools (LangChain tools) ────────────────────────────────────────────────
+const readLinkTool = tool(
+  async ({ url }: { url: string }) => {
+    const read = await readLinkContent(url);
+    if (!read.pageText) return JSON.stringify({ ok: false, source: 'none' });
+    return JSON.stringify({ ok: true, title: read.pageTitle, text: read.pageText, source: read.source });
+  },
+  {
+    name: 'read_link',
+    description:
+      'Fetch a URL and return its readable text. Works for X/Twitter posts, Google Docs, and regular web pages. Pass the full URL to read.',
+    schema: z.object({ url: z.string().describe('The full URL to fetch and read') }),
+  }
+);
+
+const findLinksTool = tool(
+  async ({ text }: { text: string }) => {
+    return JSON.stringify(extractAllUrls(text));
+  },
+  {
+    name: 'find_links',
+    description: 'Extract every URL found in a block of text. Returns a JSON array of URLs.',
+    schema: z.object({ text: z.string().describe('The text to scan for links') }),
+  }
+);
+
+// ── State annotation ─────────────────────────────────────────────────────────
 export type AgentStepStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
-export type AgentStepKind = 'tool' | 'think' | 'done';
 
 export interface AgentStep {
   id: string;
   label: string;
   detail?: string;
   status: AgentStepStatus;
-  kind: AgentStepKind;
+  kind: 'tool' | 'think' | 'done';
 }
+
+const AgentState = Annotation.Root({
+  input: Annotation<{ title: string; text: string; url: string | null }>(),
+  candidates: Annotation<string[]>({ reducer: (_, v) => v, default: () => [] }),
+  reads: Annotation<number>({ reducer: (_, v) => v, default: () => 0 }),
+  evidenceBlocks: Annotation<string[]>({ reducer: (a, b) => a.concat(b), default: () => [] }),
+  sources: Annotation<string[]>({ reducer: (a, b) => a.concat(b), default: () => [] }),
+  steps: Annotation<AgentStep[]>({ reducer: (a, b) => a.concat(b), default: () => [] }),
+  summary: Annotation<string | null>({ reducer: (_, v) => v, default: () => null }),
+});
 
 export interface AgentResult {
   steps: AgentStep[];
@@ -21,122 +64,138 @@ export interface AgentResult {
 
 const MAX_READS = 3;
 
-function step(kind: AgentStepKind, label: string): AgentStep {
-  return { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, label, status: 'pending', kind };
+function nextId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+function step(label: string, kind: AgentStep['kind'], status: AgentStepStatus = 'running'): AgentStep {
+  return { id: nextId(), label, status, kind };
 }
 
-/**
- * Agentic loop: observe → decide which tool to call → collect evidence →
- * decide again. No fixed script beyond the bookkeeping; the order and depth
- * of reads emerges from the content itself.
- */
-export async function runAgent(
-  input: { title: string; text: string; url: string | null },
-  onSteps: (steps: AgentStep[]) => void
-): Promise<AgentResult> {
-  const steps: AgentStep[] = [];
-  const sources: string[] = [];
-  const evidenceBlocks: string[] = [];
-  const failed = new Set<string>();
-  const read = new Set<string>();
-  const seen = new Set<string>();
-  const candidates: string[] = [];
+// ── Nodes ────────────────────────────────────────────────────────────────────
+async function scanNode(state: typeof AgentState.State): Promise<Partial<typeof AgentState.State>> {
+  const { input } = state;
+  const s = step('Scanning for links', 'tool', 'running');
 
-  const emit = () => onSteps([...steps]);
-  const begin = (label: string, kind: AgentStepKind = 'tool') => {
-    const s = step(kind, label);
-    steps.push(s);
-    emit();
-    return s;
-  };
-  const finish = (s: AgentStep, status: AgentStepStatus, detail?: string) => {
-    s.status = status;
-    if (detail !== undefined) s.detail = detail;
-    emit();
-  };
-
-  // ── Step 1: scan the dump for links ──────────────────────────────
-  const scan = begin('Scanning for links');
   const seedText = [input.title, input.text, input.url ?? ''].filter(Boolean).join(' ');
-  for (const u of extractAllUrls(seedText)) {
-    if (!seen.has(u)) {
-      seen.add(u);
-      candidates.push(u);
-    }
+  const found = (await findLinksTool.invoke({ text: seedText })) as string;
+  const fromText = JSON.parse(found) as string[];
+  const candidates = [...new Set([...(input.url ? [input.url] : []), ...fromText])];
+
+  s.status = 'done';
+  s.detail = candidates.length > 0 ? `${candidates.length} link(s) found` : 'No links — text only';
+
+  return { candidates, steps: [s] };
+}
+
+async function readNode(state: typeof AgentState.State): Promise<Partial<typeof AgentState.State>> {
+  const { candidates, reads, evidenceBlocks, sources } = state;
+  const next = candidates.find((u) => !evidenceBlocks.some((b) => b.includes(u)));
+  if (!next) {
+    return { reads: reads + 1 };
   }
-  if (input.url && !seen.has(input.url)) {
-    seen.add(input.url);
-    candidates.push(input.url);
-  }
-  finish(scan, 'done', candidates.length > 0 ? `${candidates.length} link(s) found` : 'No links — text only');
 
-  // ── Step 2: agentic read loop — read the most useful unread link, discover nested links ──
-  const readOne = async (url: string): Promise<boolean> => {
-    if (failed.has(url) || read.has(url)) return false;
-    read.add(url);
-    const link = await readLinkContent(url);
-    if (!link.pageText) {
-      failed.add(url);
-      return false;
-    }
-    evidenceBlocks.push(`[${sources.length + 1}] ${link.pageTitle ?? url}\n${link.pageText}`);
-    sources.push(`${link.pageTitle ?? url}`);
-    for (const nested of extractAllUrls(link.pageText + ' ' + url)) {
-      if (!seen.has(nested)) {
-        seen.add(nested);
-        candidates.push(nested);
-      }
-    }
-    return true;
-  };
+  const s = step(`Reading ${shorten(next)}`, 'tool', 'running');
+  let newEvidence: string[] = [];
+  let newSources: string[] = [];
+  let newCandidates = state.candidates;
 
-  for (let i = 0; i < MAX_READS; i++) {
-    const unread = candidates.filter((u) => !read.has(u) && !failed.has(u));
-    const next = unread[0];
-    if (!next) break;
-
-    const s = begin(`Reading ${shorten(next)}`);
-    const ok = await readOne(next);
-    if (ok) {
-      const chars = evidenceBlocks[evidenceBlocks.length - 1]?.length ?? 0;
-      finish(s, 'done', `${chars.toLocaleString()} chars of evidence`);
+  try {
+    const raw = (await readLinkTool.invoke({ url: next })) as string;
+    const parsed = JSON.parse(raw) as { ok: boolean; title?: string | null; text?: string; source?: string };
+    if (parsed.ok && parsed.text) {
+      const title = parsed.title ?? next;
+      newEvidence = [`[${sources.length + 1}] ${title} — ${next}\n${parsed.text}`];
+      newSources = [title];
+      const nested = extractAllUrls(`${parsed.text} ${next}`);
+      newCandidates = [...new Set([...state.candidates, ...nested])];
+      s.status = 'done';
+      s.detail = `${parsed.text.length.toLocaleString()} chars of evidence`;
     } else {
-      finish(s, 'failed', 'Unreadable — link blocked or offline');
+      s.status = 'failed';
+      s.detail = 'Unreadable — link blocked or offline';
     }
+  } catch {
+    s.status = 'failed';
+    s.detail = 'Unreadable — link blocked or offline';
   }
 
-  // New nested links that appeared mid-loop were appended above; nothing else to do.
+  return {
+    reads: reads + 1,
+    evidenceBlocks: newEvidence,
+    sources: newSources,
+    candidates: newCandidates,
+    steps: [s],
+  };
+}
 
-  // ── Step 3: summarize what we have ───────────────────────────────
-  const think = begin('Summarizing…', 'think');
-  const evidence = evidenceBlocks.join('\n\n').slice(0, 3600);
+async function summarizeNode(state: typeof AgentState.State): Promise<Partial<typeof AgentState.State>> {
+  const s = step('Summarizing…', 'think', 'running');
+
+  const evidence = state.evidenceBlocks.join('\n\n').slice(0, 3600);
   let summary: string | null = null;
 
   if (modelReady()) {
     summary = await summarizeEvidence({
-      title: input.title,
-      text: input.text,
+      title: state.input.title,
+      text: state.input.text,
       evidence,
     });
   }
 
   if (!summary) {
-    // Heuristic fallback: first substantive sentences from the deepest source.
-    const sourceText = evidenceBlocks[evidenceBlocks.length - 1] ?? input.text ?? input.title;
+    const sourceText = state.evidenceBlocks[state.evidenceBlocks.length - 1] ?? state.input.text ?? state.input.title;
     summary = heuristicSummary(sourceText);
   }
-  finish(think, 'done', summary ? summary.slice(0, 80) + (summary.length > 80 ? '…' : '') : 'No summary available');
 
-  const done = step('done', 'Research complete');
-  done.status = 'done';
-  steps.push(done);
-  emit();
+  s.status = 'done';
+  s.detail = summary ? summary.slice(0, 80) + (summary.length > 80 ? '…' : '') : 'No summary available';
+
+  return { summary, steps: [s] };
+}
+
+async function finalizeNode(state: typeof AgentState.State): Promise<Partial<typeof AgentState.State>> {
+  const s = step('Research complete', 'done', 'done');
+  return { steps: [s] };
+}
+
+function shouldContinue(state: typeof AgentState.State): 'read' | 'summarize' {
+  const unread = state.candidates.filter((u) => !state.evidenceBlocks.some((b) => b.includes(u)));
+  if (unread.length > 0 && state.reads < MAX_READS) return 'read';
+  return 'summarize';
+}
+
+const workflow = new StateGraph(AgentState)
+  .addNode('scan', scanNode)
+  .addNode('read', readNode)
+  .addNode('summarize', summarizeNode)
+  .addNode('finalize', finalizeNode)
+  .addEdge(START, 'scan')
+  .addConditionalEdges('scan', shouldContinue, { read: 'read', summarize: 'summarize' })
+  .addConditionalEdges('read', shouldContinue, { read: 'read', summarize: 'summarize' })
+  .addEdge('summarize', 'finalize')
+  .addEdge('finalize', END)
+  .compile();
+
+// ── Public API ───────────────────────────────────────────────────────────────
+export async function runAgent(
+  input: { title: string; text: string; url: string | null },
+  onSteps: (steps: AgentStep[]) => void
+): Promise<AgentResult> {
+  const result = await workflow.invoke(
+    { input, candidates: [], reads: 0, evidenceBlocks: [], sources: [], steps: [], summary: null },
+    { recursionLimit: 10 }
+  );
+
+  // Replay steps through onSteps so the UI can render them live.
+  for (let i = 1; i <= result.steps.length; i++) {
+    onSteps([...result.steps.slice(0, i)]);
+  }
 
   return {
-    steps,
-    summary,
-    sources,
-    extracted: evidenceBlocks.length > 0 ? evidenceBlocks.join('\n\n') : null,
+    steps: result.steps,
+    summary: result.summary ?? heuristicSummary(result.evidenceBlocks.join('\n\n') || input.title),
+    sources: result.sources,
+    extracted: result.evidenceBlocks.length > 0 ? result.evidenceBlocks.join('\n\n') : null,
   };
 }
 
@@ -152,7 +211,7 @@ function shorten(url: string): string {
 
 function heuristicSummary(text: string): string {
   const cleaned = text
-    .replace(/^\[\d+\] [^\n]+\n/, '') // strip leading "[N] title" header
+    .replace(/^\[\d+\] [^\n]+\n/, '')
     .trim();
   const sentences = cleaned.match(/[^.!?\n]+[.!?]+/g) ?? [cleaned];
   const picked = sentences
