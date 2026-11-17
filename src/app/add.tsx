@@ -77,7 +77,8 @@ export default function AddDumpScreen() {
           disabled={!trimmed || saving}
           loading={saving}
           style={{ margin: 12, borderRadius: 24 }}
-          contentStyle={{ paddingVertical: 10 }}
+          contentStyle={{ paddingVertical: 12, minHeight: 52 }}
+            labelStyle={{ fontSize: 15 }}
         >
           {saving ? 'Saving…' : 'Dump it'}
         </Button>

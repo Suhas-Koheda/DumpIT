@@ -67,7 +67,7 @@ export default function BoardScreen() {
                       <Text style={{ fontSize: 10, color: theme.colors.onSurfaceVariant }}>{timeAgo(item.createdAt)}</Text>
                       <PaperText
                         onPress={() => setKanbanState(item.id, NEXT_STATE[item.kanbanState])}
-                        style={{ color: theme.colors.primary, fontWeight: '800', fontSize: 14, paddingHorizontal: 6 }}
+                        style={{ color: theme.colors.primary, fontWeight: '800', fontSize: 18, paddingHorizontal: 10, paddingVertical: 6 }}
                       >
                         →
                       </PaperText>

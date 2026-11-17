@@ -303,7 +303,7 @@ export default function DumpDetailScreen() {
                 <Ionicons name="open-outline" size={16} color={theme.colors.onSurfaceVariant} />
               </View>
               <Text variant="bodySmall" selectable numberOfLines={2} style={{ color: theme.colors.onSurfaceVariant }}>{item.url}</Text>
-              <Button mode="contained-tonal" compact onPress={openUrl} style={{ alignSelf: 'flex-start' }}>Open link</Button>
+              <Button mode="contained-tonal" icon="open-in-new" onPress={openUrl} contentStyle={{ minHeight: 48, paddingHorizontal: 8 }} labelStyle={{ fontSize: 14 }} style={{ alignSelf: 'flex-start' }}>Open link</Button>
             </Card.Content>
           </Card>
         ) : null}
@@ -409,7 +409,7 @@ export default function DumpDetailScreen() {
             ) : ai?.status === 'error' ? (
               <View style={{ gap: 10 }}>
                 <Text variant="bodySmall" style={{ color: theme.colors.error }}>{ai.error}</Text>
-                <Button mode="outlined" compact onPress={() => retryAiAnalysis(item.id)}>Ask again</Button>
+                <Button mode="outlined" onPress={() => retryAiAnalysis(item.id)} contentStyle={{ minHeight: 46, paddingHorizontal: 4 }} labelStyle={{ fontSize: 14 }}>Ask again</Button>
               </View>
             ) : aiState !== 'ready' ? (
               <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
@@ -463,7 +463,7 @@ export default function DumpDetailScreen() {
         {/* Markdown body */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, fontWeight: '700' }}>BODY</Text>
-          <Button compact mode="text" onPress={() => setBodyEditing((v) => !v)}>
+          <Button mode="text" icon={bodyEditing ? 'eye-outline' : 'pencil'} onPress={() => setBodyEditing((v) => !v)} contentStyle={{ minHeight: 44, paddingHorizontal: 4 }} labelStyle={{ fontSize: 14 }}>
             {bodyEditing ? 'Preview' : 'Edit'}
           </Button>
         </View>
@@ -530,7 +530,7 @@ export default function DumpDetailScreen() {
             <IconButton icon="close" size={16} onPress={() => removeAttachment(item.id, a.id)} />
           </View>
         ))}
-        <Button mode="outlined" icon="paperclip" onPress={attachFile}>Attach file</Button>
+        <Button mode="outlined" icon="paperclip" onPress={attachFile} contentStyle={{ minHeight: 48 }} labelStyle={{ fontSize: 14 }}>Attach file</Button>
 
         {/* Voice memos */}
         <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, fontWeight: '700' }}>VOICE MEMOS</Text>
@@ -539,6 +539,8 @@ export default function DumpDetailScreen() {
             mode={recorderState.isRecording ? 'contained' : 'contained-tonal'}
             icon={recorderState.isRecording ? 'stop' : 'microphone'}
             onPress={toggleRecording}
+            contentStyle={{ minHeight: 48, paddingHorizontal: 4 }}
+            labelStyle={{ fontSize: 14 }}
           >
             {recorderState.isRecording ? 'Stop' : 'Record'}
           </Button>
@@ -577,7 +579,7 @@ export default function DumpDetailScreen() {
         {/* Danger zone */}
         <Divider style={{ marginVertical: 4 }} />
         <Text variant="bodySmall" style={{ color: theme.colors.outline }}>{sourceLabel(item.source)}</Text>
-        <Button mode="contained" icon="fire" buttonColor={theme.colors.errorContainer} textColor={theme.colors.onErrorContainer} onPress={confirmDelete}>
+        <Button mode="contained" icon="fire" buttonColor={theme.colors.errorContainer} textColor={theme.colors.onErrorContainer} onPress={confirmDelete} contentStyle={{ minHeight: 52 }} labelStyle={{ fontSize: 14 }}>
           Burn this dump
         </Button>
       </ScrollView>

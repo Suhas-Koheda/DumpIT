@@ -129,9 +129,9 @@ export default function SettingsScreen() {
             <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
               JSON keeps everything — notes, tags, pins, analysis, blocks. PDF is a read-only printout.
             </Text>
-            <Button mode="contained" icon="download" onPress={doExportJson} disabled={working}>Export vault — JSON</Button>
-            <Button mode="contained-tonal" icon="file-pdf-box" onPress={doExportPdf} disabled={working}>Export vault — PDF</Button>
-            <Button mode="outlined" icon="upload" onPress={doImportJson} disabled={working}>Import vault — JSON</Button>
+            <Button mode="contained" icon="download" contentStyle={{ minHeight: 48 }} labelStyle={{ fontSize: 14 }} onPress={doExportJson} disabled={working}>Export vault — JSON</Button>
+            <Button mode="contained-tonal" icon="file-pdf-box" onPress={doExportPdf} disabled={working} contentStyle={{ minHeight: 48 }} labelStyle={{ fontSize: 14 }}>Export vault — PDF</Button>
+            <Button mode="outlined" icon="upload" contentStyle={{ minHeight: 48 }} labelStyle={{ fontSize: 14 }} onPress={doImportJson} disabled={working}>Import vault — JSON</Button>
           </Card.Content>
         </Card>
 
@@ -157,9 +157,9 @@ export default function SettingsScreen() {
               maxLength={12}
             />
             {lockEnabled ? (
-              <Button mode="outlined" icon="lock-open-outline" onPress={handleClearPin}>Remove lock</Button>
+              <Button mode="outlined" icon="lock-open-outline" contentStyle={{ minHeight: 48 }} labelStyle={{ fontSize: 14 }} onPress={handleClearPin}>Remove lock</Button>
             ) : (
-              <Button mode="contained" icon="lock" onPress={handleSetPin}>Enable lock</Button>
+              <Button mode="contained" icon="lock" contentStyle={{ minHeight: 48 }} labelStyle={{ fontSize: 14 }} onPress={handleSetPin}>Enable lock</Button>
             )}
           </Card.Content>
         </Card>
