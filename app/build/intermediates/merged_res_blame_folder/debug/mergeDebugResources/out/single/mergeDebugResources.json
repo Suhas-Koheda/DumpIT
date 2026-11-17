@@ -1,0 +1,26 @@
+[
+    {
+        "merged": "com.dumpit.app-debug-32:/drawable_ic_launcher_foreground.png.flat",
+        "source": "com.dumpit.app-main-34:/drawable/ic_launcher_foreground.png"
+    },
+    {
+        "merged": "com.dumpit.app-debug-32:/drawable_ic_launcher_legacy.png.flat",
+        "source": "com.dumpit.app-main-34:/drawable/ic_launcher_legacy.png"
+    },
+    {
+        "merged": "com.dumpit.app-debug-32:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "com.dumpit.app-main-34:/mipmap-anydpi-v26/ic_launcher_round.xml"
+    },
+    {
+        "merged": "com.dumpit.app-debug-32:/drawable_ic_launcher_monochrome.png.flat",
+        "source": "com.dumpit.app-main-34:/drawable/ic_launcher_monochrome.png"
+    },
+    {
+        "merged": "com.dumpit.app-debug-32:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "com.dumpit.app-main-34:/mipmap-anydpi-v26/ic_launcher.xml"
+    },
+    {
+        "merged": "com.dumpit.app-debug-32:/drawable_ic_launcher_background.png.flat",
+        "source": "com.dumpit.app-main-34:/drawable/ic_launcher_background.png"
+    }
+]

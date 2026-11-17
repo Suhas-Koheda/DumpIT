@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.dumpit.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.dumpit.app"

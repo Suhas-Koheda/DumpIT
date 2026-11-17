@@ -33,7 +33,7 @@ data class AgentState(
 
 data class AgentResult(
     val steps: List<AgentStep>,
-    val summary: String,
+    val summary: String?,
     val sources: List<String>,
     val extracted: String?,
 )
@@ -55,8 +55,8 @@ class ResearchAgent(
         val body = listOfNotNull(
             title.takeIf { it.isNotBlank() }?.let { "Item: $it" },
             text.takeIf { it.isNotBlank() }?.let { "Shared text: $it" },
-            evidence.takeIf { it.isNotBlank() }?.let { "Page content found by the reader:\n${it.take(3200)}" },
-        ).joinToString("\n\n").take(4200)
+            evidence.takeIf { it.isNotBlank() }?.let { "Page content found by the reader:\n$it" },
+        ).joinToString("\n\n")
 
         return listOf(
             "You summarize saved content (tweets, posts, articles, docs). Reply with ONE or TWO short sentences describing what the content actually says — facts, not meta commentary. No preamble, no quotes.",
@@ -85,7 +85,7 @@ class ResearchAgent(
         val next = state.candidates.firstOrNull { url -> state.evidenceBlocks.none { it.contains(url) } }
             ?: return state.copy(reads = state.reads + 1)
 
-        val s = step("Reading ${if (next.length > 44) next.take(44) + "…" else next}", StepKind.TOOL)
+        val s = step("Reading $next", StepKind.TOOL)
 
         return try {
             val read = reader.read(next)
@@ -100,7 +100,7 @@ class ResearchAgent(
                 }.toList()
                 val done = s.copy(
                     status = AgentStatus.DONE,
-                    detail = "${read.pageText.length.toLocaleString()} chars of evidence",
+                    detail = "${read.pageText.length} chars of evidence",
                 )
                 state.copy(
                     candidates = newCandidates,
@@ -121,18 +121,15 @@ class ResearchAgent(
 
     private suspend fun summarizeNode(state: AgentState): AgentState {
         val s = step("Summarizing…", StepKind.THINK)
-        val evidence = state.evidenceBlocks.joinToString("\n\n").take(3600)
+        val evidence = state.evidenceBlocks.joinToString("\n\n")
 
-        var summary = summarizer?.summarize(state.input.title, state.input.text, evidence)
-        if (summary.isNullOrBlank()) {
-            val sourceText = state.evidenceBlocks.lastOrNull()
-                ?: state.input.text.ifBlank { state.input.title }
-            summary = sourceText.trim().take(280).ifBlank { null }
-        }
+        // Pure data: if the on-device model can't handle the context, there is no
+        // heuristic fallback — summary stays null and the evidence is kept as-is.
+        val summary = summarizer?.summarize(state.input.title, state.input.text, evidence)
 
         val done = s.copy(
             status = AgentStatus.DONE,
-            detail = summary?.let { it.take(80) + if (it.length > 80) "…" else "" } ?: "No summary available",
+            detail = summary ?: "No summary — on-device model not available",
         )
         return state.copy(summary = summary, steps = state.steps + done)
     }
@@ -146,9 +143,6 @@ class ResearchAgent(
         val unread = state.candidates.any { url -> state.evidenceBlocks.none { it.contains(url) } }
         return if (unread && state.reads < MAX_READS) Continuation.READ else Continuation.SUMMARIZE
     }
-
-    private fun Int.toLocaleString(): String =
-        toString().reversed().chunked(3).joinToString(",").reversed()
 
     /** find_links tool — extract URLs from a block of text. */
     fun findLinks(text: String): List<String> = extractAllUrls(text)
@@ -175,8 +169,7 @@ class ResearchAgent(
 
         return AgentResult(
             steps = state.steps,
-            summary = state.summary
-                ?: state.evidenceBlocks.joinToString("\n\n").trim().take(280),
+            summary = state.summary,
             sources = state.sources,
             extracted = state.evidenceBlocks.takeIf { it.isNotEmpty() }?.joinToString("\n\n"),
         )

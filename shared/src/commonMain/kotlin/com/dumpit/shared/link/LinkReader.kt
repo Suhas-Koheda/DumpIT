@@ -19,7 +19,6 @@ import kotlinx.serialization.json.Json
 
 private const val TIMEOUT_MS = 5_000L
 private const val DOC_TIMEOUT_MS = 9_000L
-private const val MAX_PAGE_CHARS = 3200
 
 private val X_HOSTS = Regex("""^(www\.|mobile\.)?(twitter|x)\.com$""", RegexOption.IGNORE_CASE)
 private val URL_RE = Regex("""https?://[^\s)>\]"']+""", RegexOption.IGNORE_CASE)
@@ -96,7 +95,7 @@ private fun parseOpenGraph(html: String): LinkRead {
         }
     }
 
-    val pageText = parts.joinToString("\n\n").take(MAX_PAGE_CHARS)
+    val pageText = parts.joinToString("\n\n")
     return if (pageText.length > 20) {
         LinkRead(pageTitle = if (looksLikeLoginWall) null else title, pageText = pageText, source = "opengraph")
     } else {
@@ -164,7 +163,7 @@ class LinkReader(private val http: HttpClient) {
                 val firstLine = cleaned.lines().map { it.trim() }.firstOrNull { it.length > 3 } ?: "Google Doc"
                 LinkRead(
                     pageTitle = "Google Doc: ${firstLine.take(80)}",
-                    pageText = cleaned.take(MAX_PAGE_CHARS),
+                    pageText = cleaned,
                     source = "googledoc",
                 )
             } else {
@@ -195,7 +194,7 @@ class LinkReader(private val http: HttpClient) {
                         if (screenName != null) append(" (@$screenName)")
                         append(":\n\n")
                         append(tweetText)
-                    }.take(MAX_PAGE_CHARS),
+                    },
                     source = "tweet",
                 )
             } else {

@@ -7,7 +7,7 @@ plugins {
 kotlin {
     android {
         namespace = "com.dumpit.shared"
-        compileSdk = 36
+        compileSdk = 37
         minSdk = 26
 
         compilerOptions {

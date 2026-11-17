@@ -26,7 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -226,12 +226,14 @@ private fun AgentPanel(
     palette: Palette,
 ) {
     val scope = rememberCoroutineScope()
-    var downloading by remember { mutableStateOf(false) }
+    var found by remember { mutableStateOf(container.summarizer.foundModels()) }
+    var activeName by remember { mutableStateOf(container.summarizer.activeModelName()) }
+    var downloadingName by remember { mutableStateOf<String?>(null) }
     var progress by remember { mutableFloatStateOf(0f) }
     var downloadError by remember { mutableStateOf<String?>(null) }
-    var modelReady by remember { mutableStateOf(container.summarizer.modelReady()) }
 
     val active = item.agent == AgentStatus.RUNNING || item.agent == AgentStatus.PENDING
+    val catalog = remember { container.summarizer.catalog() }
 
     Column(
         modifier = Modifier
@@ -318,56 +320,141 @@ private fun AgentPanel(
             }
         }
 
-        // On-device model download (Google MediaPipe LLM Inference)
-        if (!modelReady) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
-                if (downloading) {
-                    Text(
-                        "Downloading on-device model… ${(progress * 100).toInt()}%",
-                        fontSize = 12.sp,
-                        color = palette.muted,
-                    )
-                    LinearProgressIndicator(
+        // On-device models — pick one, or use what's already on the phone
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "ON-DEVICE MODEL",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.4.sp,
+                    color = palette.accent,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    activeName?.let { "ACTIVE: ${it.removeSuffix(".task").take(28)}" } ?: "NONE ACTIVE",
+                    fontSize = 10.sp,
+                    color = palette.faint,
+                    maxLines = 1,
+                )
+            }
+
+            // Models already on the device (.task usable; .gguf legacy)
+            found.forEach { model ->
+                val selected = model.fileName == activeName
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .let { if (model.usable) it.clickable {
+                            container.summarizer.selectModel(model.fileName)
+                            activeName = container.summarizer.activeModelName()
+                            found = container.summarizer.foundModels()
+                        } else it }
+                        .padding(vertical = 6.dp, horizontal = 2.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(model.fileName.removeSuffix(".task"), fontSize = 12.sp, color = palette.text, lineHeight = 16.sp)
+                        Text(
+                            if (model.usable) "${formatBytes(model.sizeBytes)} · found in ${model.location}"
+                            else "${formatBytes(model.sizeBytes)} · legacy GGUF — MediaPipe can't load it",
+                            fontSize = 10.sp,
+                            color = if (model.usable) palette.muted else palette.faint,
+                        )
+                    }
+                    if (model.usable) {
+                        Text(if (selected) "✓" else "", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = palette.accent)
+                    }
+                }
+            }
+
+            // Catalog entries not yet on the device
+            catalog.filter { entry -> found.none { it.fileName == entry.fileName } }.forEach { entry ->
+                val isDownloading = downloadingName == entry.fileName
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp, horizontal = 2.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(entry.name, fontSize = 12.sp, color = palette.text, lineHeight = 16.sp)
+                        Text(
+                            "${formatBytes(entry.sizeBytes)} · ${entry.license} — ${entry.blurb}",
+                            fontSize = 10.sp,
+                            color = palette.muted,
+                            lineHeight = 14.sp,
+                        )
+                    }
+                    if (isDownloading) {
+                        Text("${(progress * 100).toInt()}%", fontSize = 12.sp, color = palette.accent)
+                    } else {
+                        Text(
+                            "DOWNLOAD",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp,
+                            color = if (downloadingName == null) palette.accent else palette.faint,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(1.dp, palette.border, RoundedCornerShape(8.dp))
+                                .let { m -> if (downloadingName == null) m.clickable {
+                                    downloadError = null
+                                    downloadingName = entry.fileName
+                                    progress = 0f
+                                    scope.launch(Dispatchers.IO) {
+                                        try {
+                                            container.summarizer.downloadModel(entry) { done, total ->
+                                                if (total > 0) progress = (done.toFloat() / total).coerceIn(0f, 1f)
+                                            }
+                                            withContext(Dispatchers.Main) {
+                                                downloadingName = null
+                                                found = container.summarizer.foundModels()
+                                                activeName = container.summarizer.activeModelName()
+                                            }
+                                        } catch (e: Exception) {
+                                            withContext(Dispatchers.Main) {
+                                                downloadingName = null
+                                                downloadError = e.message ?: "Download failed"
+                                            }
+                                        }
+                                    }
+                                } else m }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+                if (isDownloading) {
+                    LinearWavyProgressIndicator(
                         progress = { progress },
                         modifier = Modifier.fillMaxWidth(),
                         color = palette.accent,
                         trackColor = palette.border,
                     )
-                } else {
-                    Text(
-                        "DOWNLOAD ON-DEVICE MODEL (Qwen2.5 0.5B)",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                        color = palette.accent,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                downloadError = null
-                                downloading = true
-                                progress = 0f
-                                scope.launch(Dispatchers.IO) {
-                                    try {
-                                        container.summarizer.downloadModel { done, total ->
-                                            if (total > 0) progress = (done.toFloat() / total).coerceIn(0f, 1f)
-                                        }
-                                        withContext(Dispatchers.Main) {
-                                            downloading = false
-                                            modelReady = true
-                                        }
-                                    } catch (e: Exception) {
-                                        withContext(Dispatchers.Main) {
-                                            downloading = false
-                                            downloadError = e.message ?: "Download failed"
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(vertical = 6.dp),
-                    )
                 }
-                downloadError?.let { Text(it, fontSize = 12.sp, color = palette.danger) }
+            }
+            downloadError?.let { Text(it, fontSize = 12.sp, color = palette.danger) }
+        }
+
+        // Evidence — the raw page text the agent read, untruncated
+        item.extracted?.takeIf { it.isNotBlank() }?.let { evidence ->
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
+                Text(
+                    "EVIDENCE (RAW)",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.4.sp,
+                    color = palette.accent,
+                )
+                Text(
+                    evidence,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    color = palette.text,
+                )
             }
         }
     }
@@ -400,6 +487,11 @@ private fun StepRow(step: AgentStep, palette: Palette) {
             }
         }
     }
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_000_000_000L -> String.format(java.util.Locale.US, "%.1f GB", bytes / 1_000_000_000.0)
+    else -> String.format(java.util.Locale.US, "%d MB", bytes / 1_000_000)
 }
 
 @Composable

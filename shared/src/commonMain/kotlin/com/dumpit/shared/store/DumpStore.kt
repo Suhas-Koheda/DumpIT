@@ -59,9 +59,11 @@ class DumpStore(
 
     init {
         scope.launch {
+            LogBus.log("store", "loading persisted dumps")
             val persisted = runCatching { storage.load() }.getOrNull() ?: emptyList()
             _items.value = persisted
             _hydrated.value = true
+            LogBus.log("store", "hydrated with ${persisted.size} dump(s)")
             triggerAgent()
         }
     }
@@ -158,7 +160,7 @@ class DumpStore(
             built += Built(
                 kind = DumpKind.TEXT,
                 platform = null,
-                title = text.lineSequence().firstOrNull()?.take(80) ?: "",
+                title = text.lineSequence().firstOrNull() ?: "",
                 text = text,
                 url = null,
                 urlHost = null,
@@ -182,6 +184,15 @@ class DumpStore(
                 createdAt = now + index,
                 agent = item.agent,
             )
+        }
+        if (payload.files.isNotEmpty() || payload.text != null || payload.webUrl != null) {
+            LogBus.log(
+                "share",
+                "share received: text=${payload.text ?: "∅"}, files=${payload.files.size}, webUrl=${payload.webUrl ?: "∅"}",
+            )
+        }
+        withIds.forEach { item ->
+            LogBus.log("dump", "created ${item.kind}${item.urlHost?.let { " link=$it" } ?: ""} — ${item.title}")
         }
         if (withIds.isNotEmpty()) {
             _items.value = withIds + _items.value
@@ -223,6 +234,7 @@ class DumpStore(
     private suspend fun processPending() = agentMutex.withLock {
         while (true) {
             val next = _items.value.firstOrNull { it.agent == AgentStatus.PENDING } ?: break
+            LogBus.log("agent", "started for dump ${next.id} — ${next.title}")
             updateItem(next.id) { it.copy(agent = AgentStatus.RUNNING) }
             persist()
             try {
@@ -243,8 +255,10 @@ class DumpStore(
                         extracted = result.extracted,
                     )
                 }
+                LogBus.log("agent", "done for dump ${next.id} — ${result.sources.size} source(s), summary ${result.summary?.length ?: 0} chars")
             } catch (_: Throwable) {
                 updateItem(next.id) { it.copy(agent = AgentStatus.FAILED) }
+                LogBus.log("agent", "FAILED for dump ${next.id}")
             }
             persist()
         }

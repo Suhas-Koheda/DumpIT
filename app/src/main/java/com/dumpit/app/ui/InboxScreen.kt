@@ -17,7 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,19 +38,21 @@ import androidx.compose.foundation.Image
 import com.dumpit.shared.model.DumpItem
 import com.dumpit.shared.model.DumpKind
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun InboxScreen(
     items: List<DumpItem>,
     hydrated: Boolean,
     onOpen: (String) -> Unit,
     onDelete: (String) -> Unit,
+    onOpenLogs: () -> Unit,
 ) {
     val palette = rememberPalette()
     var deleteTarget by remember { mutableStateOf<DumpItem?>(null) }
 
     if (!hydrated) {
         Box(Modifier.fillMaxSize().background(palette.bg), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = palette.accent)
+            LoadingIndicator(color = palette.accent)
         }
         return
     }
@@ -77,6 +80,26 @@ fun InboxScreen(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(palette.card)
+                    .border(1.dp, palette.border, RoundedCornerShape(999.dp))
+                    .clickable(onClick = onOpenLogs)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .height(28.dp)
+                    .testTag("logs"),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "LOGS",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp,
+                    color = palette.accent,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
