@@ -27,7 +27,6 @@ export default function ShareIntentWatcher() {
           fileName: file.fileName ?? null,
         })) ?? null,
       metaTitle: shareIntent.meta?.title ?? null,
-      source: 'share' as const,
     };
 
     addFromShare(payload)
