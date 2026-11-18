@@ -1,6 +1,7 @@
 package com.dumpit.shared.agent
 
 import com.dumpit.shared.classify.makeId
+import com.dumpit.shared.store.LogBus
 import com.dumpit.shared.link.LinkReader
 import com.dumpit.shared.link.extractAllUrls
 import com.dumpit.shared.model.AgentStatus
@@ -15,7 +16,7 @@ import com.dumpit.shared.model.StepKind
  * LLM on Android), exactly like llama.rn was behind `modelReady()`.
  */
 
-private const val MAX_READS = 3
+private const val MAX_READS = 2
 
 enum class Continuation { READ, SUMMARIZE }
 
@@ -30,6 +31,7 @@ data class AgentState(
     val steps: List<AgentStep> = emptyList(),
     val summary: String? = null,
     val readUrls: Set<String> = emptySet(),
+    val seedFinalUrl: String? = null,
 )
 
 data class AgentResult(
@@ -37,6 +39,7 @@ data class AgentResult(
     val summary: String?,
     val sources: List<String>,
     val extracted: String?,
+    val resolvedSeedUrl: String? = null,
 )
 
 /** Implemented on Android by MediaPipeSummarizer; falls back to evidence slice. */
@@ -69,11 +72,18 @@ class ResearchAgent(
     }
 
     private suspend fun readNode(state: AgentState): AgentState {
-        val next = state.candidates.firstOrNull { url -> url !in state.readUrls }
+        val rawNext = state.candidates.firstOrNull { url -> url !in state.readUrls }
             ?: return state.copy(reads = state.reads + 1)
+
+        // Unfold shorteners/redirects first — evidence and graphs show real destinations.
+        val next = reader.resolveFinalUrl(rawNext)
+        if (next != rawNext) {
+            LogBus.log("agent", "unfolded $rawNext → $next")
+        }
 
         val s = step("Reading $next", StepKind.TOOL)
 
+        val seenAsSeed = state.input.url != null && (rawNext == state.input.url || next == state.input.url)
         return try {
             val read = reader.read(next)
             if (read.pageText.isNotBlank()) {
@@ -95,15 +105,16 @@ class ResearchAgent(
                     evidenceBlocks = state.evidenceBlocks + newEvidence,
                     sources = state.sources + newSources,
                     steps = state.steps + done,
-                    readUrls = state.readUrls + next,
+                    readUrls = state.readUrls + rawNext + next,
+                    seedFinalUrl = if (seenAsSeed) next else state.seedFinalUrl,
                 )
             } else {
                 val done = s.copy(status = AgentStatus.FAILED, detail = "Unreadable — ${read.error ?: "link blocked or offline"}")
-                state.copy(reads = state.reads + 1, steps = state.steps + done, readUrls = state.readUrls + next)
+                state.copy(reads = state.reads + 1, steps = state.steps + done, readUrls = state.readUrls + rawNext + next)
             }
         } catch (e: Exception) {
             val done = s.copy(status = AgentStatus.FAILED, detail = "Unreadable — ${e.message ?: e::class.simpleName}")
-            state.copy(reads = state.reads + 1, steps = state.steps + done, readUrls = state.readUrls + next)
+            state.copy(reads = state.reads + 1, steps = state.steps + done, readUrls = state.readUrls + rawNext + next)
         }
     }
 
@@ -160,6 +171,7 @@ class ResearchAgent(
             summary = state.summary,
             sources = state.sources,
             extracted = state.evidenceBlocks.takeIf { it.isNotEmpty() }?.joinToString("\n\n"),
+            resolvedSeedUrl = state.seedFinalUrl,
         )
     }
 }

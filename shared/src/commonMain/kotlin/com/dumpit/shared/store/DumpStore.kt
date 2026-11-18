@@ -260,6 +260,8 @@ class DumpStore(
                         summary = result.summary,
                         sources = result.sources,
                         extracted = result.extracted,
+                        url = result.resolvedSeedUrl?.takeIf { it.isNotBlank() && it != item.url } ?: item.url,
+                        urlHost = result.resolvedSeedUrl?.let { hostOf(it) ?: item.urlHost } ?: item.urlHost,
                     )
                 }
                 LogBus.log("agent", "done for dump ${next.id} — ${result.sources.size} source(s), summary ${result.summary?.length ?: 0} chars")

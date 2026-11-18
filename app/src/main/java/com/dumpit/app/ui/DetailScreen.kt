@@ -2,11 +2,6 @@ package com.dumpit.app.ui
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,7 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -48,10 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dumpit.app.AppContainer
 import com.dumpit.shared.model.AgentStatus
-import com.dumpit.shared.model.AgentStep
 import com.dumpit.shared.model.DumpItem
 import com.dumpit.shared.model.DumpKind
-import com.dumpit.shared.model.StepKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -65,7 +57,6 @@ fun DetailScreen(
 ) {
     val palette = rememberPalette()
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val bitmap = rememberImageBitmap(if (item.kind == DumpKind.IMAGE) item.imageUri else null)
 
     var confirmDelete by remember { mutableStateOf(false) }
@@ -78,7 +69,6 @@ fun DetailScreen(
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        // Top row: back + badge + date
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "← INBOX",
@@ -95,7 +85,6 @@ fun DetailScreen(
         }
         Text(fullDate(item.createdAt), fontSize = 13.sp, color = palette.faint)
 
-        // Hero image
         if (item.kind == DumpKind.IMAGE && bitmap != null) {
             Image(
                 bitmap = bitmap,
@@ -109,7 +98,6 @@ fun DetailScreen(
             )
         }
 
-        // Link card
         item.url?.let { url ->
             Column(
                 modifier = Modifier
@@ -157,7 +145,6 @@ fun DetailScreen(
             }
         }
 
-        // Title + body
         Text(
             item.title,
             fontSize = 22.sp,
@@ -174,14 +161,8 @@ fun DetailScreen(
             )
         }
 
-        // The Agent
-        AgentPanel(
-            item = item,
-            container = container,
-            palette = palette,
-        )
+        AgentPanel(item = item, container = container, palette = palette)
 
-        // Delete
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -217,6 +198,11 @@ fun DetailScreen(
             },
         )
     }
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_000_000_000L -> String.format(java.util.Locale.US, "%.1f GB", bytes / 1_000_000_000.0)
+    else -> String.format(java.util.Locale.US, "%d MB", bytes / 1_000_000)
 }
 
 @Composable
@@ -268,11 +254,9 @@ private fun AgentPanel(
             )
         }
 
-        // Steps
+        // Read graph
         if (item.steps.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item.steps.forEach { step -> StepRow(step, palette) }
-            }
+            ReadGraph(item, palette)
         } else if (active) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("●", fontSize = 12.sp, color = palette.accent)
@@ -304,6 +288,7 @@ private fun AgentPanel(
             )
         }
 
+        // Sources
         if (item.sources.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
@@ -340,7 +325,6 @@ private fun AgentPanel(
                 )
             }
 
-            // Models already on the device (.task usable; .gguf legacy)
             found.forEach { model ->
                 val selected = model.fileName == activeName
                 Row(
@@ -348,11 +332,13 @@ private fun AgentPanel(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .let { if (model.usable) it.clickable {
-                            container.summarizer.selectModel(model.fileName)
-                            activeName = container.summarizer.activeModelName()
-                            found = container.summarizer.foundModels()
-                        } else it }
+                        .let { base ->
+                            if (model.usable) base.clickable {
+                                container.summarizer.selectModel(model.fileName)
+                                activeName = container.summarizer.activeModelName()
+                                found = container.summarizer.foundModels()
+                            } else base
+                        }
                         .padding(vertical = 6.dp, horizontal = 2.dp),
                 ) {
                     Column(Modifier.weight(1f)) {
@@ -370,7 +356,6 @@ private fun AgentPanel(
                 }
             }
 
-            // Catalog entries not yet on the device
             catalog.filter { entry -> found.none { it.fileName == entry.fileName } }.forEach { entry ->
                 val isDownloading = downloadingName == entry.fileName
                 Row(
@@ -400,28 +385,30 @@ private fun AgentPanel(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .border(1.dp, palette.border, RoundedCornerShape(8.dp))
-                                .let { m -> if (downloadingName == null) m.clickable {
-                                    downloadError = null
-                                    downloadingName = entry.fileName
-                                    progress = 0f
-                                    scope.launch(Dispatchers.IO) {
-                                        try {
-                                            container.summarizer.downloadModel(entry) { done, total ->
-                                                if (total > 0) progress = (done.toFloat() / total).coerceIn(0f, 1f)
-                                            }
-                                            withContext(Dispatchers.Main) {
-                                                downloadingName = null
-                                                found = container.summarizer.foundModels()
-                                                activeName = container.summarizer.activeModelName()
-                                            }
-                                        } catch (e: Exception) {
-                                            withContext(Dispatchers.Main) {
-                                                downloadingName = null
-                                                downloadError = e.message ?: "Download failed"
+                                .let { m ->
+                                    if (downloadingName == null) m.clickable {
+                                        downloadError = null
+                                        downloadingName = entry.fileName
+                                        progress = 0f
+                                        scope.launch(Dispatchers.IO) {
+                                            try {
+                                                container.summarizer.downloadModel(entry) { done, total ->
+                                                    if (total > 0) progress = (done.toFloat() / total).coerceIn(0f, 1f)
+                                                }
+                                                withContext(Dispatchers.Main) {
+                                                    downloadingName = null
+                                                    found = container.summarizer.foundModels()
+                                                    activeName = container.summarizer.activeModelName()
+                                                }
+                                            } catch (e: Exception) {
+                                                withContext(Dispatchers.Main) {
+                                                    downloadingName = null
+                                                    downloadError = e.message ?: "Download failed"
+                                                }
                                             }
                                         }
-                                    }
-                                } else m }
+                                    } else m
+                                }
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         )
                     }
@@ -437,102 +424,5 @@ private fun AgentPanel(
             }
             downloadError?.let { Text(it, fontSize = 12.sp, color = palette.danger) }
         }
-
-        // Evidence — the raw page text the agent read, untruncated
-        item.extracted?.takeIf { it.isNotBlank() }?.let { evidence ->
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
-                Text(
-                    "EVIDENCE (RAW)",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 1.4.sp,
-                    color = palette.accent,
-                )
-                Text(
-                    evidence,
-                    fontSize = 12.sp,
-                    lineHeight = 18.sp,
-                    color = palette.text,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun StepRow(step: AgentStep, palette: Palette) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(vertical = 2.dp),
-    ) {
-        StepStatusDot(step, palette)
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                step.label,
-                fontSize = 13.sp,
-                color = palette.text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            step.detail?.let {
-                Text(
-                    it,
-                    fontSize = 12.sp,
-                    color = palette.muted,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
-}
-
-private fun formatBytes(bytes: Long): String = when {
-    bytes >= 1_000_000_000L -> String.format(java.util.Locale.US, "%.1f GB", bytes / 1_000_000_000.0)
-    else -> String.format(java.util.Locale.US, "%d MB", bytes / 1_000_000)
-}
-
-@Composable
-private fun StepStatusDot(step: AgentStep, palette: Palette) {
-    when (step.status) {
-        AgentStatus.RUNNING -> {
-            val pulse = if (step.kind == StepKind.THINK) {
-                val infinite = rememberInfiniteTransition(label = "pulse")
-                infinite.animateFloat(
-                    initialValue = 0.3f,
-                    targetValue = 1f,
-                    animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
-                    label = "alpha",
-                ).value
-            } else {
-                1f
-            }
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(androidx.compose.foundation.shape.CircleShape)
-                    .background(palette.accent.copy(alpha = pulse)),
-            )
-        }
-        AgentStatus.DONE -> Box(
-            modifier = Modifier
-                .size(10.dp)
-                .clip(androidx.compose.foundation.shape.CircleShape)
-                .background(palette.accent),
-        )
-        AgentStatus.FAILED -> Box(
-            modifier = Modifier
-                .size(10.dp)
-                .clip(androidx.compose.foundation.shape.CircleShape)
-                .background(palette.danger),
-        )
-        else -> Box(
-            modifier = Modifier
-                .size(10.dp)
-                .clip(androidx.compose.foundation.shape.CircleShape)
-                .background(palette.faint.copy(alpha = 0.4f)),
-        )
     }
 }

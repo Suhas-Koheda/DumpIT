@@ -5,6 +5,7 @@ import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
+import io.ktor.client.request.head
 import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -129,6 +130,47 @@ class LinkReader(private val http: HttpClient) {
             }
         }
     )
+
+    private val headClient by lazy {
+        HttpClient {
+            followRedirects = false
+            install(HttpTimeout) {
+                requestTimeoutMillis = 4_000
+                connectTimeoutMillis = 4_000
+                socketTimeoutMillis = 4_000
+            }
+        }
+    }
+
+    /**
+     * Unfold shorteners and redirect chains to the real destination via a
+     * cheap HEAD walk (no body). Falls back to the original URL on any error.
+     */
+    suspend fun resolveFinalUrl(rawUrl: String): String {
+        var current = rawUrl
+        repeat(5) {
+            if (!current.startsWith("https://") && !current.startsWith("http://")) return current
+            val hp = hostAndPath(current) ?: return current
+            try {
+                val response = headClient.head(current)
+                val code = response.status.value
+                if (code in 300..399) {
+                    val location = response.headers["Location"] ?: return current
+                    current = when {
+                        location.startsWith("http://") || location.startsWith("https://") -> location
+                        location.startsWith("/") -> "https://${hp.first}$location"
+                        else -> "https://${hp.first}/$location"
+                    }
+                    LogBus.log("link", "redirect → $current")
+                } else {
+                    return current
+                }
+            } catch (_: Exception) {
+                return current
+            }
+        }
+        return current
+    }
 
     suspend fun read(rawUrl: String): LinkRead {
         val (host, path) = hostAndPath(rawUrl) ?: return LinkRead(null, "", "none")
