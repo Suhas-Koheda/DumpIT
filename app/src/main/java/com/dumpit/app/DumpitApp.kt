@@ -2,6 +2,7 @@ package com.dumpit.app
 
 import android.app.Application
 import android.content.Context
+import com.dumpit.app.ui.ThemeState
 import com.dumpit.shared.agent.ResearchAgent
 import com.dumpit.shared.android.AndroidImageStore
 import com.dumpit.shared.android.AndroidItemStorage
@@ -12,6 +13,10 @@ import com.dumpit.shared.store.DumpStore
 /** Process-wide wiring — the DumpProvider equivalent for Compose. */
 class AppContainer(context: Context) {
     val appContext: Context = context.applicationContext
+
+    init {
+        ThemeState.init(appContext.filesDir)
+    }
 
     val storage = AndroidItemStorage(appContext.filesDir)
     val imageStore = AndroidImageStore(appContext)

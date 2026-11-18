@@ -21,6 +21,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,7 @@ fun InboxScreen(
 ) {
     val palette = rememberPalette()
     var deleteTarget by remember { mutableStateOf<DumpItem?>(null) }
+    val themeMode by ThemeState.mode.collectAsState()
     var filter by remember { mutableStateOf("ALL") } // ALL | TODO | DUMP
 
     val visible = remember(items, filter) {
@@ -91,6 +93,23 @@ fun InboxScreen(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
+            Text(
+                themeMode.label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                color = palette.accent,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(palette.card)
+                    .border(1.dp, palette.border, RoundedCornerShape(999.dp))
+                    .clickable { ThemeState.cycle() }
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .height(28.dp)
+                    .testTag("theme"),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            Spacer(Modifier.width(10.dp))
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))

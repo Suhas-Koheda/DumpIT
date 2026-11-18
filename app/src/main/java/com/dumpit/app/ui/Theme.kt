@@ -6,6 +6,7 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.graphics.Color
 
 /** Port of theme.ts — same light/dark palettes. */
@@ -46,12 +47,25 @@ val DarkPalette = Palette(
 )
 
 @Composable
-fun rememberPalette(): Palette = if (isSystemInDarkTheme()) DarkPalette else LightPalette
+fun rememberPalette(): Palette {
+    val mode = ThemeState.mode.collectAsState().value
+    return when (mode) {
+        ThemeMode.LIGHT -> LightPalette
+        ThemeMode.DARK -> DarkPalette
+        ThemeMode.SYSTEM -> if (isSystemInDarkTheme()) DarkPalette else LightPalette
+    }
+}
 
 @Composable
 fun DumpitTheme(content: @Composable () -> Unit) {
     val palette = rememberPalette()
-    val scheme = if (isSystemInDarkTheme()) {
+    val mode = ThemeState.mode.collectAsState().value
+    val dark = when (mode) {
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+    }
+    val scheme = if (dark) {
         darkColorScheme(
             primary = palette.accent,
             onPrimary = palette.onAccent,
