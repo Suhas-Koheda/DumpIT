@@ -110,11 +110,11 @@ class ResearchAgent(
                     steps = state.steps + done,
                 )
             } else {
-                val done = s.copy(status = AgentStatus.FAILED, detail = "Unreadable — link blocked or offline")
+                val done = s.copy(status = AgentStatus.FAILED, detail = "Unreadable — ${read.error ?: "link blocked or offline"}")
                 state.copy(reads = state.reads + 1, steps = state.steps + done)
             }
         } catch (e: Exception) {
-            val done = s.copy(status = AgentStatus.FAILED, detail = "Unreadable — link blocked or offline")
+            val done = s.copy(status = AgentStatus.FAILED, detail = "Unreadable — ${e.message ?: e::class.simpleName}")
             state.copy(reads = state.reads + 1, steps = state.steps + done)
         }
     }

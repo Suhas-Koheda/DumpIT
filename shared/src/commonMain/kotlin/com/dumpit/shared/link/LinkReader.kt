@@ -7,6 +7,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
+import com.dumpit.shared.store.LogBus
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -27,6 +28,7 @@ data class LinkRead(
     val pageTitle: String?,
     val pageText: String,
     val source: String, // 'tweet' | 'googledoc' | 'opengraph' | 'none'
+    val error: String? = null,
 )
 
 /** All URLs in a blob of text, deduplicated, trailing punctuation stripped. */
@@ -134,8 +136,13 @@ class LinkReader(private val http: HttpClient) {
         if (X_HOSTS.matches(host)) readTweet("https://$host$path")?.let { return it }
 
         return try {
+            LogBus.log("link", "fetch: $rawUrl")
             val response: HttpResponse = http.get(rawUrl) {
                 header("Accept", "text/html,application/xhtml+xml,application/json,text/plain")
+            }
+            LogBus.log("link", "response: HTTP ${response.status.value} for $rawUrl")
+            if (response.status.value !in 200..299) {
+                return LinkRead(null, "", "none", "HTTP ${response.status.value}")
             }
             val text = response.bodyAsText()
             val finalHostPath = hostAndPath(response.call.request.url.toString())
@@ -146,8 +153,9 @@ class LinkReader(private val http: HttpClient) {
                 }
             }
             parseOpenGraph(text)
-        } catch (_: Exception) {
-            LinkRead(null, "", "none")
+        } catch (error: Exception) {
+            LogBus.log("link", "fetch failed: ${error::class.simpleName}: ${error.message}")
+            LinkRead(null, "", "none", "${error::class.simpleName}: ${error.message}")
         }
     }
 
@@ -169,8 +177,9 @@ class LinkReader(private val http: HttpClient) {
             } else {
                 LinkRead(null, "", "none")
             }
-        } catch (_: Exception) {
-            LinkRead(null, "", "none")
+        } catch (error: Exception) {
+            LogBus.log("link", "googledoc fetch failed: ${error::class.simpleName}: ${error.message}")
+            LinkRead(null, "", "none", "googledoc: ${error::class.simpleName}: ${error.message}")
         }
     }
 
@@ -180,7 +189,13 @@ class LinkReader(private val http: HttpClient) {
         val handle = match.groupValues[1].removePrefix("@")
         val statusId = match.groupValues[2]
         return try {
+            LogBus.log("link", "fxtwitter fetch: https://api.fxtwitter.com/$handle/status/$statusId")
             val response = http.get("https://api.fxtwitter.com/$handle/status/$statusId")
+            LogBus.log("link", "fxtwitter response: HTTP ${response.status.value}")
+            if (response.status.value !in 200..299) {
+                LogBus.log("link", "fxtwitter HTTP ${response.status.value}")
+                return null
+            }
             val parsed = json.decodeFromString(TweetResponse.serializer(), response.bodyAsText())
             val tweetText = parsed.tweet?.text?.trim()
             if (!tweetText.isNullOrBlank() && tweetText.length > 5) {
@@ -200,7 +215,8 @@ class LinkReader(private val http: HttpClient) {
             } else {
                 null
             }
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            LogBus.log("link", "fxtwitter failed: ${error::class.simpleName}: ${error.message}")
             null
         }
     }

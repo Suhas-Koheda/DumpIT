@@ -237,10 +237,17 @@ class DumpStore(
             LogBus.log("agent", "started for dump ${next.id} — ${next.title}")
             updateItem(next.id) { it.copy(agent = AgentStatus.RUNNING) }
             persist()
+            val loggedStepIds = HashSet<String>()
             try {
                 val result = agent.run(
                     AgentInput(title = next.title, text = next.text, url = next.url),
                 ) { steps ->
+                    steps.filter { loggedStepIds.add(it.id) }.forEach { stepLine ->
+                        LogBus.log(
+                            "agent",
+                            "step [${stepLine.status}] ${stepLine.label}${stepLine.detail?.let { " — $it" } ?: ""}",
+                        )
+                    }
                     _items.value = _items.value.map { item ->
                         if (item.id == next.id) item.copy(steps = steps) else item
                     }
