@@ -205,15 +205,12 @@ class LinkReader(private val http: HttpClient) {
             if (!tweetText.isNullOrBlank() && tweetText.length > 5) {
                 val author = parsed.tweet?.author
                 val authorName = author?.name ?: "Unknown"
-                val screenName = author?.screen_name
+                // Evidence = what the source says. The author stays in SOURCES
+                // (pageTitle) — not inside the evidence text, so a small model
+                // cannot anchor the summary on who wrote it.
                 LinkRead(
                     pageTitle = "$authorName on X",
-                    pageText = buildString {
-                        append(authorName)
-                        if (screenName != null) append(" (@$screenName)")
-                        append(":\n\n")
-                        append(tweetText)
-                    },
+                    pageText = tweetText,
                     source = "tweet",
                 )
             } else {

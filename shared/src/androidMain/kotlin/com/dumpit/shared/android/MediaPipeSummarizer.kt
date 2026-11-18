@@ -4,6 +4,7 @@ import android.content.Context
 import com.dumpit.shared.agent.EvidenceSummarizer
 import com.dumpit.shared.store.LogBus
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -121,11 +122,26 @@ class MediaPipeSummarizer(private val context: Context) : EvidenceSummarizer {
                 return@withContext summarizeChunked(engine, title, text, evidence)
             }
 
-            runCatching { engine.generateResponse(full) }
+            runCatching { sessionOnce(engine, full) }
                 .getOrNull()
-                ?.trim()
                 ?.takeIf { it.isNotBlank() }
         }
+
+    /** One query → one response → session closed. No context accumulates between calls. */
+    private fun sessionOnce(engine: LlmInference, prompt: String): String? {
+        val options = LlmInferenceSession.LlmInferenceSessionOptions.builder()
+            .setTopK(1)
+            .setTemperature(0.0f)
+            .setRandomSeed(0)
+            .build()
+        val session = LlmInferenceSession.createFromOptions(engine, options)
+        return try {
+            session.addQueryChunk(prompt)
+            session.generateResponse()?.trim()
+        } finally {
+            session.close()
+        }
+    }
 
     private fun summarizeChunked(
         engine: LlmInference,
@@ -138,13 +154,14 @@ class MediaPipeSummarizer(private val context: Context) : EvidenceSummarizer {
 
         val partials = chunks.mapNotNull { chunk ->
             runCatching {
-                engine.generateResponse(
+                sessionOnce(
+                    engine,
                     listOf(
                         "Summarize ONLY this section of a longer saved item in ONE or TWO short sentences — the facts, ideas and claims in it, not the author or platform.",
                         "Section:\n$chunk",
                     ).joinToString("\n\n")
                 )
-            }.getOrNull()?.trim()?.takeIf { it.isNotBlank() }
+            }.getOrNull()?.takeIf { it.isNotBlank() }
         }
         if (partials.isEmpty()) return null
 
@@ -153,14 +170,15 @@ class MediaPipeSummarizer(private val context: Context) : EvidenceSummarizer {
             .take(2200) // merge prompt must also fit the context window
 
         return runCatching {
-            engine.generateResponse(
+            sessionOnce(
+                engine,
                 listOf(
                     "These are summaries of consecutive sections of one saved item. Combine them into ONE or TWO short sentences describing what the item actually says — facts and claims, not the author, not the platform. Do NOT describe the author.",
                     title.takeIf { it.isNotBlank() }?.let { "Item: $it" },
                     "Section summaries:\n$joined",
                 ).filterNotNull().joinToString("\n\n")
             )
-        }.getOrNull()?.trim()?.takeIf { it.isNotBlank() }
+        }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
     /** Greedy pack on paragraph/line boundaries; hard-split anything over budget. */
