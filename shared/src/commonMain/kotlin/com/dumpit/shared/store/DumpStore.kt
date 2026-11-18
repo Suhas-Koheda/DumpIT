@@ -100,10 +100,14 @@ class DumpStore(
             if (mime.startsWith("image/")) {
                 try {
                     val stored = imageStore.store(file.path, mime, file.fileName)
+                    // Content URI ids are ugly — give screenshots a human title.
+                    val prettyTitle = file.fileName?.takeIf {
+                        it.isNotBlank() && !it.matches(Regex("""^[0-9a-f]{16,}$""", RegexOption.IGNORE_CASE))
+                    } ?: "Screenshot"
                     built += Built(
                         kind = DumpKind.IMAGE,
                         platform = null,
-                        title = file.fileName?.takeIf { it.isNotBlank() } ?: "Image",
+                        title = prettyTitle,
                         text = "",
                         url = null,
                         urlHost = null,
