@@ -261,6 +261,40 @@ class DumpStore(
         persist()
     }
 
+    /**
+     * Attach OCR text to a screenshot dump: fills text, extracts URL/platform
+     * and entities, then requeues the agent so the AI summarizes it too.
+     */
+    suspend fun enrichFromOcr(id: String, ocrText: String) {
+        if (ocrText.isBlank()) return
+        val trimmed = ocrText.trim()
+        _items.value = _items.value.map { item ->
+            if (item.id != id) return@map item
+            val foundUrl = extractUrl(trimmed)
+            item.copy(
+                text = trimmed,
+                url = foundUrl ?: item.url,
+                urlHost = foundUrl?.let { hostOf(it) } ?: item.urlHost,
+                platform = foundUrl?.let { detectPlatform(it) } ?: item.platform,
+                entities = extractEntities(trimmed),
+                // OCR text is content — give the agent something to say about it.
+                agent = if (item.agent == AgentStatus.SKIPPED || item.agent == AgentStatus.DONE) {
+                    AgentStatus.PENDING
+                } else {
+                    item.agent
+                },
+                steps = if (item.agent == AgentStatus.DONE) emptyList() else item.steps,
+                summary = if (item.agent == AgentStatus.DONE) null else item.summary,
+                sources = if (item.agent == AgentStatus.DONE) emptyList() else item.sources,
+                extracted = if (item.agent == AgentStatus.DONE) null else item.extracted,
+            )
+        }
+        persist()
+        triggerAgent()
+        val item = _items.value.find { it.id == id }
+        LogBus.log("ocr", "enriched ${id.take(8)} — ${trimmed.length} chars, url=${item?.url ?: "none"}, entities=${item?.entities?.size ?: 0}")
+    }
+
     private fun triggerAgent() {
         scope.launch { processPending() }
     }

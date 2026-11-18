@@ -276,12 +276,16 @@ private fun DumpCard(
             color = if (item.done) palette.faint else palette.text,
             textDecoration = if (item.done) TextDecoration.LineThrough else TextDecoration.None,
         )
-        if (item.text.isNotBlank() && item.kind != DumpKind.IMAGE) {
+
+        // About the dump: shared text first, else the AI summary of it.
+        val snippet = item.text.takeIf { it.isNotBlank() }
+            ?: item.summary?.takeIf { it.isNotBlank() }
+        if (snippet != null) {
             Text(
-                item.text,
+                snippet,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
-                maxLines = 2,
+                maxLines = 3,
                 color = palette.muted,
             )
         }

@@ -24,6 +24,8 @@ private const val TIMEOUT_MS = 5_000L
 private const val DOC_TIMEOUT_MS = 30_000L
 
 private val X_HOSTS = Regex("""^(www\.|mobile\.)?(twitter|x)\.com$""", RegexOption.IGNORE_CASE)
+private val REDDIT_HOSTS = Regex("""^(www\.|old\.|new\.|m\.)?reddit\.com$""", RegexOption.IGNORE_CASE)
+private val REDDIT_SHORT = Regex("""^redd\.it$""", RegexOption.IGNORE_CASE)
 private val URL_RE = Regex("""https?://[^\s)>\]"']+""", RegexOption.IGNORE_CASE)
 
 data class LinkRead(
@@ -74,7 +76,7 @@ private fun stripHtml(html: String): String = html
     .replace(Regex("""\n{3,}"""), "\n\n")
     .trim()
 
-private fun parseOpenGraph(html: String, preferSocial: Boolean = false): LinkRead {
+private fun parseOpenGraph(html: String): LinkRead {
     val title = firstMatch(html, Regex("""<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE))
         ?: firstMatch(html, Regex("""<meta[^>]+name=["']twitter:title["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE))
         ?: firstMatch(html, Regex("""<title>([^<]+)</title>""", RegexOption.IGNORE_CASE))
@@ -83,10 +85,9 @@ private fun parseOpenGraph(html: String, preferSocial: Boolean = false): LinkRea
         ?: firstMatch(html, Regex("""<meta[^>]+name=["']twitter:description["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE))
 
     val titleLower = (title ?: "").lowercase()
-    val wallWords = Regex("""sign\s?in|log\s?in|login""", RegexOption.IGNORE_CASE).containsMatchIn(titleLower)
-    val goodWords = Regex("""post|tweet|article|docs""", RegexOption.IGNORE_CASE).containsMatchIn(titleLower)
-    // LinkedIn & co: prefer any og:title/description over silently dropping them.
-    val looksLikeLoginWall = if (preferSocial) false else wallWords && !goodWords
+    val looksLikeLoginWall =
+        Regex("""sign\s?in|log\s?in|login""", RegexOption.IGNORE_CASE).containsMatchIn(titleLower) &&
+            !Regex("""post|tweet|article|docs""", RegexOption.IGNORE_CASE).containsMatchIn(titleLower)
 
     val parts = ArrayList<String>()
     if (title != null && !looksLikeLoginWall) parts.add("Title: $title")
@@ -108,10 +109,27 @@ private fun parseOpenGraph(html: String, preferSocial: Boolean = false): LinkRea
     }
 }
 
-private fun isLinkedinish(host: String): Boolean =
-    host.equals("linkedin.com", true) || host.endsWith(".linkedin.com", true) || host.equals("lnkd.in", true)
-
 private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+@Serializable
+private data class RedditChildData(
+    val title: String? = null,
+    val selftext: String? = null,
+    val author: String? = null,
+    val subreddit: String? = null,
+    val ups: Int? = null,
+    @kotlinx.serialization.SerialName("num_comments") val numComments: Int? = null,
+    val url: String? = null,
+)
+
+@Serializable
+private data class RedditChild(val data: RedditChildData? = null)
+
+@Serializable
+private data class RedditData(val children: List<RedditChild> = emptyList())
+
+@Serializable
+private data class RedditResponse(val data: RedditData? = null)
 
 @Serializable
 private data class TweetAuthor(val name: String? = null, val screen_name: String? = null)
@@ -181,6 +199,13 @@ class LinkReader(private val http: HttpClient) {
 
         matchGoogleDoc(host, path)?.let { return readGoogleDoc(it) }
         if (X_HOSTS.matches(host)) readTweet("https://$host$path")?.let { return it }
+        if (REDDIT_HOSTS.matches(host)) readReddit(path)?.let { return it }
+        if (REDDIT_SHORT.matches(host)) {
+            // redd.it shortlinks are redirects to the reddit thread
+            hostAndPath(resolveFinalUrl(rawUrl))?.let { (h, p) ->
+                if (REDDIT_HOSTS.matches(h)) readReddit(p)?.let { return it }
+            }
+        }
 
         return try {
             LogBus.log("link", "fetch: $rawUrl")
@@ -194,14 +219,13 @@ class LinkReader(private val http: HttpClient) {
             }
             val text = response.bodyAsText()
             val finalHostPath = hostAndPath(response.call.request.url.toString())
-            val socialHost = finalHostPath?.first ?: host
             if (finalHostPath != null) {
                 matchGoogleDoc(finalHostPath.first, finalHostPath.second)?.let { return readGoogleDoc(it) }
                 if (X_HOSTS.matches(finalHostPath.first)) {
                     readTweet("https://${finalHostPath.first}${finalHostPath.second}")?.let { return it }
                 }
             }
-            parseOpenGraph(text, isLinkedinish(socialHost))
+            parseOpenGraph(text)
         } catch (error: Exception) {
             LogBus.log("link", "fetch failed: ${error::class.simpleName}: ${error.message}")
             LinkRead(null, "", "none", "${error::class.simpleName}: ${error.message}")
@@ -233,6 +257,43 @@ class LinkReader(private val http: HttpClient) {
         } catch (error: Exception) {
             LogBus.log("link", "googledoc fetch failed: ${error::class.simpleName}: ${error.message}")
             LinkRead(null, "", "none", "googledoc: ${error::class.simpleName}: ${error.message}")
+        }
+    }
+
+    private suspend fun readReddit(path: String): LinkRead? {
+        // Public .json endpoint — no auth, no tokens.
+        val jsonPath = path.removeSuffix("/")
+        val apiUrl = "https://www.reddit.com$jsonPath.json?raw_json=1"
+        return try {
+            LogBus.log("link", "reddit json fetch: $apiUrl")
+            val response = http.get(apiUrl) {
+                header("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                header("Accept", "application/json")
+            }
+            LogBus.log("link", "reddit json response: HTTP ${response.status.value}")
+            if (response.status.value !in 200..299) return null
+            val body = response.bodyAsText()
+            val parsed = json.decodeFromString(RedditResponse.serializer(), body)
+            val post = parsed.data?.children?.firstOrNull()?.data ?: return null
+            val title = post.title.orEmpty()
+            val self = post.selftext.orEmpty()
+            val pageText = buildString {
+                append(title).append("\n\n")
+                append("by u/").append(post.author ?: "unknown").append(" in r/").append(post.subreddit ?: "?")
+                append(" — ").append(post.ups ?: 0).append(" upvotes, ").append(post.numComments ?: 0).append(" comments\n\n")
+                post.url?.takeIf { it.isNotBlank() && !it.contains("comments") }?.let {
+                    append("Link: ").append(it).append("\n")
+                }
+                if (self.isNotBlank()) append(self)
+            }
+            LinkRead(
+                pageTitle = title.takeIf { it.isNotBlank() },
+                pageText = pageText,
+                source = "reddit",
+            )
+        } catch (error: Exception) {
+            LogBus.log("link", "reddit failed: ${error::class.simpleName}: ${error.message}")
+            null
         }
     }
 

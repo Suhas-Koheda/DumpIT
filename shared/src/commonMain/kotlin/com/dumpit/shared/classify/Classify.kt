@@ -8,6 +8,9 @@ private val X_HOSTS = Regex("""^(www\.|mobile\.)?(twitter|x)\.com$""", RegexOpti
 private val TCO_HOST = Regex("""^t\.co$""", RegexOption.IGNORE_CASE)
 private val LINKEDIN_HOST = Regex("""^(www\.|m\.)?linkedin\.com$""", RegexOption.IGNORE_CASE)
 private val LINKEDIN_SHORT = Regex("""^lnkd\.in$""", RegexOption.IGNORE_CASE)
+private val REDDIT_HOSTS = Regex("""^(www\.|old\.|new\.|m\.)?reddit\.com$""", RegexOption.IGNORE_CASE)
+private val REDDIT_SHORT = Regex("""^redd\.it$""", RegexOption.IGNORE_CASE)
+private val WHATSAPP_HOSTS = Regex("""^(wa\.me|chat\.whatsapp\.com|api\.whatsapp\.com)$""", RegexOption.IGNORE_CASE)
 private val TRAILING_PUNCT = Regex("""[.,!?;:]+$""")
 
 /** First http(s) URL found in a string, if any. */
@@ -31,6 +34,8 @@ fun detectPlatform(url: String): Platform {
     val host = hostOf(url) ?: return Platform.WEB
     if (X_HOSTS.matches(host) || TCO_HOST.matches(host)) return Platform.X
     if (LINKEDIN_HOST.matches(host) || LINKEDIN_SHORT.matches(host)) return Platform.LINKEDIN
+    if (REDDIT_HOSTS.matches(host) || REDDIT_SHORT.matches(host)) return Platform.REDDIT
+    if (WHATSAPP_HOSTS.matches(host)) return Platform.WHATSAPP
     return Platform.WEB
 }
 

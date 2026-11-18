@@ -11,7 +11,7 @@ import com.dumpit.shared.store.DumpStore
 
 /** Process-wide wiring — the DumpProvider equivalent for Compose. */
 class AppContainer(context: Context) {
-    private val appContext = context.applicationContext
+    val appContext: Context = context.applicationContext
 
     val storage = AndroidItemStorage(appContext.filesDir)
     val imageStore = AndroidImageStore(appContext)

@@ -74,9 +74,16 @@ class MainActivity : ComponentActivity() {
 
         if (text.isNullOrBlank() && files.isEmpty()) return
         lifecycleScope.launch(Dispatchers.IO) {
-            container.dumpStore.addFromShare(
+            val created = container.dumpStore.addFromShare(
                 SharePayload(text = text, files = files, metaTitle = subject)
             )
+            // OCR every image the share produced — then the agent sees its text.
+            for (item in created.filter { it.kind == com.dumpit.shared.model.DumpKind.IMAGE && it.imageUri != null }) {
+                val ocr = com.dumpit.app.ocr.ScreenshotOcr.recognize(container.appContext, item.imageUri!!)
+                if (!ocr.isNullOrBlank()) {
+                    container.dumpStore.enrichFromOcr(item.id, ocr)
+                }
+            }
         }
     }
 

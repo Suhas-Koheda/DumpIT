@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 enum class DumpKind { TEXT, LINK, IMAGE }
 
 @Serializable
-enum class Platform { X, LINKEDIN, WEB }
+enum class Platform { X, LINKEDIN, WEB, REDDIT, WHATSAPP }
 
 @Serializable
 enum class AgentStatus { PENDING, RUNNING, DONE, FAILED, SKIPPED }
