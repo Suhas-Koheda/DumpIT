@@ -1,7 +1,9 @@
 package com.dumpit.app.ui
 
+import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,23 +52,29 @@ fun ReadGraph(item: DumpItem, palette: Palette) {
             val ok = step.status == AgentStatus.DONE
             val failed = step.status == AgentStatus.FAILED
             val glyph = if (index == reads.lastIndex) "└─" else "├─"
+            val context = androidx.compose.ui.platform.LocalContext.current
 
-            GraphRow(
-                glyph = glyph,
-                glyphColor = if (failed) palette.danger else palette.accent,
-                title = if (path.isNullOrBlank()) host else "$host/$path",
-                subtitle = when {
-                    failed -> step.detail ?: "unreadable"
-                    ok -> step.detail ?: "read"
-                    else -> "reading…"
-                },
-                dot = when {
-                    failed -> palette.danger
-                    ok -> palette.accent
-                    else -> palette.faint
-                },
-                palette = palette,
-            )
+            // Tap any read node — opens the page in the browser.
+            Box(modifier = Modifier.fillMaxWidth().clickable {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }) {
+                GraphRow(
+                    glyph = glyph,
+                    glyphColor = if (failed) palette.danger else palette.accent,
+                    title = if (path.isNullOrBlank()) host else "$host/$path",
+                    subtitle = when {
+                        failed -> step.detail ?: "unreadable"
+                        ok -> step.detail ?: "read"
+                        else -> "reading…"
+                    },
+                    dot = when {
+                        failed -> palette.danger
+                        ok -> palette.accent
+                        else -> palette.faint
+                    },
+                    palette = palette,
+                )
+            }
         }
 
         if (reads.isEmpty()) {
