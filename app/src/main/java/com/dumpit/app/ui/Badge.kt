@@ -14,13 +14,14 @@ import com.dumpit.shared.model.DumpItem
 import com.dumpit.shared.model.DumpKind
 import com.dumpit.shared.model.Platform
 
-/** Small pill — what the dump is. Port of Badge.tsx. */
+/** Small pill — what the dump is. Port of Badge.tsx. TODO dumps get their own pill. */
 @Composable
 fun Badge(item: DumpItem, palette: Palette, modifier: Modifier = Modifier) {
-    val label = when (item.kind) {
-        DumpKind.TEXT -> "TEXT"
-        DumpKind.IMAGE -> "SCREENSHOT"
-        DumpKind.LINK -> when (item.platform) {
+    val label = when {
+        item.isTodo -> "TODO"
+        item.kind == DumpKind.TEXT -> "TEXT"
+        item.kind == DumpKind.IMAGE -> "SCREENSHOT"
+        else -> when (item.platform) {
             Platform.X -> "X / TWITTER"
             Platform.LINKEDIN -> "LINKEDIN"
             else -> "LINK"

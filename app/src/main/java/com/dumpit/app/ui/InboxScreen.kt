@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
@@ -46,9 +47,19 @@ fun InboxScreen(
     onOpen: (String) -> Unit,
     onDelete: (String) -> Unit,
     onOpenLogs: () -> Unit,
+    onToggleTodoDone: (String) -> Unit,
 ) {
     val palette = rememberPalette()
     var deleteTarget by remember { mutableStateOf<DumpItem?>(null) }
+    var filter by remember { mutableStateOf("ALL") } // ALL | TODO | DUMP
+
+    val visible = remember(items, filter) {
+        when (filter) {
+            "TODO" -> items.filter { it.isTodo }
+            "DUMP" -> items.filterNot { it.isTodo }
+            else -> items
+        }
+    }
 
     if (!hydrated) {
         Box(Modifier.fillMaxSize().background(palette.bg), contentAlignment = Alignment.Center) {
@@ -119,7 +130,9 @@ fun InboxScreen(
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(palette.border))
 
-        if (items.isEmpty()) {
+        FilterChips(filter, onFilter = { filter = it }, palette = palette)
+
+        if (visible.isEmpty()) {
             EmptyState(palette)
         } else {
             LazyColumn(
@@ -127,12 +140,13 @@ fun InboxScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(items, key = { it.id }) { item ->
+                items(visible, key = { it.id }) { item ->
                     DumpCard(
                         item = item,
                         palette = palette,
                         onOpen = { onOpen(item.id) },
                         onRequestDelete = { deleteTarget = item },
+                        onToggleTodoDone = onToggleTodoDone,
                     )
                 }
             }
@@ -184,6 +198,7 @@ private fun DumpCard(
     palette: Palette,
     onOpen: () -> Unit,
     onRequestDelete: () -> Unit,
+    onToggleTodoDone: (String) -> Unit,
 ) {
     val bitmap = rememberImageBitmap(if (item.kind == DumpKind.IMAGE) item.imageUri else null)
 
@@ -202,6 +217,22 @@ private fun DumpCard(
             Spacer(Modifier.weight(1f))
             Text(timeAgo(item.createdAt), fontSize = 12.sp, color = palette.faint)
             Spacer(Modifier.width(12.dp))
+            if (item.isTodo) {
+                Box(
+                    modifier = Modifier
+                        .clickable { onToggleTodoDone(item.id) }
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                        .testTag("todo-${item.id}"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (item.done) "✓" else "◯",
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (item.done) palette.accent else palette.muted,
+                    )
+                }
+            }
             Text(
                 "✕",
                 fontSize = 17.sp,
@@ -242,7 +273,8 @@ private fun DumpCard(
             fontWeight = FontWeight.Bold,
             lineHeight = 22.sp,
             maxLines = 2,
-            color = palette.text,
+            color = if (item.done) palette.faint else palette.text,
+            textDecoration = if (item.done) TextDecoration.LineThrough else TextDecoration.None,
         )
         if (item.text.isNotBlank() && item.kind != DumpKind.IMAGE) {
             Text(
@@ -259,6 +291,34 @@ private fun DumpCard(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 color = palette.accent,
+            )
+        }
+    }
+}
+
+
+@Composable
+private fun FilterChips(current: String, onFilter: (String) -> Unit, palette: Palette) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        listOf("ALL" to "ALL", "TODO" to "TODO", "DUMP" to "DUMPS").forEach { (value, label) ->
+            val selected = current == value
+            Text(
+                label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                color = if (selected) palette.onAccent else palette.muted,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (selected) palette.accent else palette.card)
+                    .border(1.dp, if (selected) palette.accent else palette.border, RoundedCornerShape(999.dp))
+                    .clickable { onFilter(value) }
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
             )
         }
     }

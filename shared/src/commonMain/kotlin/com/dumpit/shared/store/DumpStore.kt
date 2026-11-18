@@ -4,6 +4,7 @@ import com.dumpit.shared.agent.AgentInput
 import com.dumpit.shared.agent.ResearchAgent
 import com.dumpit.shared.classify.detectPlatform
 import com.dumpit.shared.classify.extractUrl
+import com.dumpit.shared.classify.extractEntities
 import com.dumpit.shared.classify.hostOf
 import com.dumpit.shared.classify.makeId
 import com.dumpit.shared.classify.readableBlurb
@@ -170,6 +171,7 @@ class DumpStore(
             )
         }
 
+        val entities = extractEntities(payload.text)
         val withIds = built.mapIndexed { index, item ->
             DumpItem(
                 id = makeId(),
@@ -183,6 +185,7 @@ class DumpStore(
                 imageName = item.imageName,
                 createdAt = now + index,
                 agent = item.agent,
+                entities = entities,
             )
         }
         if (payload.files.isNotEmpty() || payload.text != null || payload.webUrl != null) {
@@ -225,6 +228,37 @@ class DumpStore(
         }
         persist()
         triggerAgent()
+    }
+
+    /** Flip DUMP↔TODO on an existing dump. Lossless — kind/payload stays. */
+    fun toggleTodo(id: String) {
+        _items.value = _items.value.map { item ->
+            if (item.id == id) item.copy(isTodo = !item.isTodo) else item
+        }
+        val target = _items.value.firstOrNull { it.id == id }
+        if (target != null) {
+            LogBus.log("todo", "isTodo=${target.isTodo} for ${target.id.take(8)} — ${target.title.take(40)}")
+        }
+        persist()
+    }
+
+    /** Toggle a todo's done state (only for todo-flagged dumps). */
+    fun toggleTodoDone(id: String) {
+        _items.value = _items.value.map { item ->
+            if (item.id == id && item.isTodo) item.copy(done = !item.done) else item
+        }
+        val target = _items.value.firstOrNull { it.id == id }
+        if (target != null) {
+            LogBus.log("todo", "done=${target.done} for ${target.id.take(8)}")
+        }
+        persist()
+    }
+
+    fun setDueAt(id: String, ts: Long?) {
+        _items.value = _items.value.map { item ->
+            if (item.id == id) item.copy(dueAt = ts) else item
+        }
+        persist()
     }
 
     private fun triggerAgent() {

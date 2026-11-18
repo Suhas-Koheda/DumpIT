@@ -20,8 +20,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,6 +51,9 @@ import com.dumpit.shared.model.DumpKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun DetailScreen(
@@ -60,6 +67,7 @@ fun DetailScreen(
     val bitmap = rememberImageBitmap(if (item.kind == DumpKind.IMAGE) item.imageUri else null)
 
     var confirmDelete by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -161,6 +169,88 @@ fun DetailScreen(
             )
         }
 
+        // TODO + due date chips
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                if (item.isTodo) "MAKE DUMP" else "MAKE TODO",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                color = if (item.isTodo) palette.accent else palette.muted,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, if (item.isTodo) palette.accent else palette.border, RoundedCornerShape(8.dp))
+                    .clickable { container.dumpStore.toggleTodo(item.id) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+            Text(
+                if (item.dueAt != null) {
+                    "DUE " + SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(Date(item.dueAt!!))
+                } else {
+                    "SET DUE DATE"
+                },
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                color = if (item.dueAt != null) palette.accent else palette.muted,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, if (item.dueAt != null) palette.accent else palette.border, RoundedCornerShape(8.dp))
+                    .clickable { showDatePicker = true }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+            if (item.dueAt != null) {
+                Text(
+                    "CANCEL DUE",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp,
+                    color = palette.faint,
+                    modifier = Modifier
+                        .clickable { container.dumpStore.setDueAt(item.id, null) }
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                )
+            }
+        }
+
+        // ENTITIES
+        if (item.entities.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                item.entities.forEach { entity ->
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(palette.card)
+                            .border(1.dp, palette.border, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            entity.kind,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 1.sp,
+                            color = palette.accent,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            entity.value,
+                            fontSize = 11.sp,
+                            color = palette.text,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+
         AgentPanel(item = item, container = container, palette = palette)
 
         Box(
@@ -182,6 +272,25 @@ fun DetailScreen(
         Spacer(Modifier.height(24.dp))
     }
 
+
+    if (showDatePicker) {
+        val initial = item.dueAt ?: System.currentTimeMillis()
+        val dateState = rememberDatePickerState(initialSelectedDateMillis = initial)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    container.dumpStore.setDueAt(item.id, dateState.selectedDateMillis)
+                    showDatePicker = false
+                }) { Text("Set") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+            },
+        ) {
+            DatePicker(state = dateState)
+        }
+    }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },

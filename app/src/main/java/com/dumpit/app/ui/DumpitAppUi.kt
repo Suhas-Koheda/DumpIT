@@ -53,6 +53,7 @@ fun DumpitAppUi(container: AppContainer) {
                     onOpen = { id -> selectedId = id; screen = Screen.DETAIL },
                     onDelete = { id -> container.dumpStore.removeItem(id) },
                     onOpenLogs = { screen = Screen.LOGS },
+                    onToggleTodoDone = { id -> container.dumpStore.toggleTodoDone(id) },
                 )
             }
         }

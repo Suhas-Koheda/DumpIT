@@ -74,7 +74,7 @@ private fun stripHtml(html: String): String = html
     .replace(Regex("""\n{3,}"""), "\n\n")
     .trim()
 
-private fun parseOpenGraph(html: String): LinkRead {
+private fun parseOpenGraph(html: String, preferSocial: Boolean = false): LinkRead {
     val title = firstMatch(html, Regex("""<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE))
         ?: firstMatch(html, Regex("""<meta[^>]+name=["']twitter:title["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE))
         ?: firstMatch(html, Regex("""<title>([^<]+)</title>""", RegexOption.IGNORE_CASE))
@@ -83,9 +83,10 @@ private fun parseOpenGraph(html: String): LinkRead {
         ?: firstMatch(html, Regex("""<meta[^>]+name=["']twitter:description["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE))
 
     val titleLower = (title ?: "").lowercase()
-    val looksLikeLoginWall =
-        Regex("""sign\s?in|log\s?in|login""", RegexOption.IGNORE_CASE).containsMatchIn(titleLower) &&
-            !Regex("""post|tweet|article|docs""", RegexOption.IGNORE_CASE).containsMatchIn(titleLower)
+    val wallWords = Regex("""sign\s?in|log\s?in|login""", RegexOption.IGNORE_CASE).containsMatchIn(titleLower)
+    val goodWords = Regex("""post|tweet|article|docs""", RegexOption.IGNORE_CASE).containsMatchIn(titleLower)
+    // LinkedIn & co: prefer any og:title/description over silently dropping them.
+    val looksLikeLoginWall = if (preferSocial) false else wallWords && !goodWords
 
     val parts = ArrayList<String>()
     if (title != null && !looksLikeLoginWall) parts.add("Title: $title")
@@ -106,6 +107,9 @@ private fun parseOpenGraph(html: String): LinkRead {
         LinkRead(pageTitle = null, pageText = "", source = "none")
     }
 }
+
+private fun isLinkedinish(host: String): Boolean =
+    host.equals("linkedin.com", true) || host.endsWith(".linkedin.com", true) || host.equals("lnkd.in", true)
 
 private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -129,9 +133,7 @@ class LinkReader(private val http: HttpClient) {
                 socketTimeoutMillis = TIMEOUT_MS
             }
         }
-    )
-
-    private val headClient by lazy {
+    )    private val headClient by lazy {
         HttpClient {
             followRedirects = false
             install(HttpTimeout) {
@@ -152,7 +154,9 @@ class LinkReader(private val http: HttpClient) {
             if (!current.startsWith("https://") && !current.startsWith("http://")) return current
             val hp = hostAndPath(current) ?: return current
             try {
-                val response = headClient.head(current)
+                val response = headClient.head(current) {
+                    header("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                }
                 val code = response.status.value
                 if (code in 300..399) {
                     val location = response.headers["Location"] ?: return current
@@ -181,6 +185,7 @@ class LinkReader(private val http: HttpClient) {
         return try {
             LogBus.log("link", "fetch: $rawUrl")
             val response: HttpResponse = http.get(rawUrl) {
+                header("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
                 header("Accept", "text/html,application/xhtml+xml,application/json,text/plain")
             }
             LogBus.log("link", "response: HTTP ${response.status.value} for $rawUrl")
@@ -189,13 +194,14 @@ class LinkReader(private val http: HttpClient) {
             }
             val text = response.bodyAsText()
             val finalHostPath = hostAndPath(response.call.request.url.toString())
+            val socialHost = finalHostPath?.first ?: host
             if (finalHostPath != null) {
                 matchGoogleDoc(finalHostPath.first, finalHostPath.second)?.let { return readGoogleDoc(it) }
                 if (X_HOSTS.matches(finalHostPath.first)) {
                     readTweet("https://${finalHostPath.first}${finalHostPath.second}")?.let { return it }
                 }
             }
-            parseOpenGraph(text)
+            parseOpenGraph(text, isLinkedinish(socialHost))
         } catch (error: Exception) {
             LogBus.log("link", "fetch failed: ${error::class.simpleName}: ${error.message}")
             LinkRead(null, "", "none", "${error::class.simpleName}: ${error.message}")
@@ -206,6 +212,7 @@ class LinkReader(private val http: HttpClient) {
         return try {
             LogBus.log("link", "googledoc export fetch: $docId")
             val response = http.get("https://docs.google.com/document/d/$docId/export?format=txt") {
+                header("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
                 header("Accept", "text/plain")
                 timeout { requestTimeoutMillis = DOC_TIMEOUT_MS }
             }
@@ -236,7 +243,9 @@ class LinkReader(private val http: HttpClient) {
         val statusId = match.groupValues[2]
         return try {
             LogBus.log("link", "fxtwitter fetch: https://api.fxtwitter.com/$handle/status/$statusId")
-            val response = http.get("https://api.fxtwitter.com/$handle/status/$statusId")
+            val response = http.get("https://api.fxtwitter.com/$handle/status/$statusId") {
+                header("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+            }
             LogBus.log("link", "fxtwitter response: HTTP ${response.status.value}")
             if (response.status.value !in 200..299) {
                 LogBus.log("link", "fxtwitter HTTP ${response.status.value}")

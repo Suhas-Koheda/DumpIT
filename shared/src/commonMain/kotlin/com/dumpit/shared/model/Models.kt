@@ -40,9 +40,18 @@ data class DumpItem(
     val summary: String? = null,
     val sources: List<String> = emptyList(),
     val extracted: String? = null,
+    val entities: List<DumpEntity> = emptyList(),
+    val embedding: List<Float> = emptyList(),
+    val entityTag: String? = null,
+    val isTodo: Boolean = false,
+    val done: Boolean = false,
+    val dueAt: Long? = null,
 )
 
 /** What a share-intent payload carries in, mirroring the old RN SharePayload. */
+@Serializable
+data class DumpEntity(val kind: String, val value: String)
+
 @Serializable
 data class ShareFile(
     val path: String,
