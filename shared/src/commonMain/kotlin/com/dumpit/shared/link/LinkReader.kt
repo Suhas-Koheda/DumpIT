@@ -3,6 +3,7 @@ package com.dumpit.shared.link
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
@@ -19,7 +20,7 @@ import kotlinx.serialization.json.Json
  */
 
 private const val TIMEOUT_MS = 5_000L
-private const val DOC_TIMEOUT_MS = 9_000L
+private const val DOC_TIMEOUT_MS = 30_000L
 
 private val X_HOSTS = Regex("""^(www\.|mobile\.)?(twitter|x)\.com$""", RegexOption.IGNORE_CASE)
 private val URL_RE = Regex("""https?://[^\s)>\]"']+""", RegexOption.IGNORE_CASE)
@@ -161,9 +162,12 @@ class LinkReader(private val http: HttpClient) {
 
     private suspend fun readGoogleDoc(docId: String): LinkRead {
         return try {
+            LogBus.log("link", "googledoc export fetch: $docId")
             val response = http.get("https://docs.google.com/document/d/$docId/export?format=txt") {
                 header("Accept", "text/plain")
+                timeout { requestTimeoutMillis = DOC_TIMEOUT_MS }
             }
+            LogBus.log("link", "googledoc export response: HTTP ${response.status.value}")
             val cleaned = response.bodyAsText().replace("\r", "").trim()
             val looksLikeLogin = Regex("""sign in to continue|accounts\.google\.com""", RegexOption.IGNORE_CASE)
                 .containsMatchIn(cleaned.take(500))

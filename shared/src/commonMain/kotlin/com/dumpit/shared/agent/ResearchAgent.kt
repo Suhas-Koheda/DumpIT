@@ -29,6 +29,7 @@ data class AgentState(
     val sources: List<String> = emptyList(),
     val steps: List<AgentStep> = emptyList(),
     val summary: String? = null,
+    val readUrls: Set<String> = emptySet(),
 )
 
 data class AgentResult(
@@ -50,20 +51,6 @@ class ResearchAgent(
     private val reader: LinkReader,
     private val summarizer: EvidenceSummarizer?,
 ) {
-    /** Build the summarize prompt — shared so it stays testable headless. */
-    fun buildSummaryPrompt(title: String, text: String, evidence: String): String {
-        val body = listOfNotNull(
-            title.takeIf { it.isNotBlank() }?.let { "Item: $it" },
-            text.takeIf { it.isNotBlank() }?.let { "Shared text: $it" },
-            evidence.takeIf { it.isNotBlank() }?.let { "Page content found by the reader:\n$it" },
-        ).joinToString("\n\n")
-
-        return listOf(
-            "You summarize saved content (tweets, posts, articles, docs). Reply with ONE or TWO short sentences describing what the content actually says — facts, not meta commentary. No preamble, no quotes.",
-            body,
-        ).joinToString("\n\n")
-    }
-
     private suspend fun scanNode(state: AgentState): AgentState {
         val s = step("Scanning for links", StepKind.TOOL)
         val seedText = listOfNotNull(state.input.title.ifBlank { null }, state.input.text.ifBlank { null }, state.input.url)
@@ -82,7 +69,7 @@ class ResearchAgent(
     }
 
     private suspend fun readNode(state: AgentState): AgentState {
-        val next = state.candidates.firstOrNull { url -> state.evidenceBlocks.none { it.contains(url) } }
+        val next = state.candidates.firstOrNull { url -> url !in state.readUrls }
             ?: return state.copy(reads = state.reads + 1)
 
         val s = step("Reading $next", StepKind.TOOL)
@@ -91,7 +78,7 @@ class ResearchAgent(
             val read = reader.read(next)
             if (read.pageText.isNotBlank()) {
                 val title = read.pageTitle ?: next
-                val newEvidence = listOf("[${state.sources.size + 1}] $title — $next\n${read.pageText}")
+                val newEvidence = listOf("[${state.sources.size + 1}] $next\n${read.pageText}")
                 val newSources = listOf(title)
                 val nested = extractAllUrls(read.pageText + " " + next)
                 val newCandidates = LinkedHashSet<String>().apply {
@@ -108,14 +95,15 @@ class ResearchAgent(
                     evidenceBlocks = state.evidenceBlocks + newEvidence,
                     sources = state.sources + newSources,
                     steps = state.steps + done,
+                    readUrls = state.readUrls + next,
                 )
             } else {
                 val done = s.copy(status = AgentStatus.FAILED, detail = "Unreadable — ${read.error ?: "link blocked or offline"}")
-                state.copy(reads = state.reads + 1, steps = state.steps + done)
+                state.copy(reads = state.reads + 1, steps = state.steps + done, readUrls = state.readUrls + next)
             }
         } catch (e: Exception) {
             val done = s.copy(status = AgentStatus.FAILED, detail = "Unreadable — ${e.message ?: e::class.simpleName}")
-            state.copy(reads = state.reads + 1, steps = state.steps + done)
+            state.copy(reads = state.reads + 1, steps = state.steps + done, readUrls = state.readUrls + next)
         }
     }
 
@@ -140,7 +128,7 @@ class ResearchAgent(
     }
 
     private fun shouldContinue(state: AgentState): Continuation {
-        val unread = state.candidates.any { url -> state.evidenceBlocks.none { it.contains(url) } }
+        val unread = state.candidates.any { url -> url !in state.readUrls }
         return if (unread && state.reads < MAX_READS) Continuation.READ else Continuation.SUMMARIZE
     }
 
